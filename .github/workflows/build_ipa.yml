@@ -33,15 +33,18 @@ jobs:
           rm -rf Pods Podfile.lock .symlinks build
           cd ..
 
-      - name: Lock Deployment Target to 13.0
+      - name: Lock Deployment Target to 15.0
         run: |
-          # Overwrite all occurrences of MinimumOSVersion in every plist under ios
-          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "13.0" {} + || true
+          # 1. Force 15.0 in Podfile platform
+          sed -i '' "s/platform :ios, .*/platform :ios, '15.0'/g" ios/Podfile || true
 
-          # Force IPHONEOS_DEPLOYMENT_TARGET in project.pbxproj
-          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' {} +
+          # 2. Update all occurrences of MinimumOSVersion in every plist under ios
+          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.0" {} + || true
 
-          # Run pod install with explicit platform repo update
+          # 3. Force IPHONEOS_DEPLOYMENT_TARGET in project.pbxproj to 15.0
+          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g' {} +
+
+          # 4. Install pods with repo update
           cd ios
           pod install --repo-update
           cd ..
