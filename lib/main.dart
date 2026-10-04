@@ -23,19 +23,18 @@ import 'package:http/http.dart' as http;
 import 'package:file_selector/file_selector.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Force errors to render red/visible on screen instead of staying blank
+  // Force errors to render visibly on the iPad screen
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
       color: Colors.white,
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
+          padding: const EdgeInsets.all(20.0),
+          child: SelectableText(
             'App Startup Error:\n\n${details.exceptionAsString()}',
             style: const TextStyle(color: Colors.red, fontSize: 16),
             textAlign: TextAlign.center,
@@ -45,13 +44,10 @@ void main() async {
     );
   };
 
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-  } catch (e) {
-    debugPrint("Firebase init failed: $e");
-  }
+  // Must await initialization with explicit options
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   runApp(
     const MaterialApp(
