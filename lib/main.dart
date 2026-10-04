@@ -5,6 +5,7 @@ import 'package:encrypt/encrypt.dart' as enc;
 import 'dart:convert';
 import 'firebase_options.dart';
 import 'dart:io';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
@@ -27,13 +28,28 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ONLY initialize window_manager on Windows desktop!
+  if (!kIsWeb && Platform.isWindows) {
+    await windowManager.ensureInitialized();
+
+    WindowOptions windowOptions = const WindowOptions(
+      size: Size(1280, 800),
+      center: true,
+      title: 'CocoTrade ERP',
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
+
+  // Safe Firebase Initialization
   try {
     if (kIsWeb) {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
     } else {
-      // Native iOS reads directly from GoogleService-Info.plist
       await Firebase.initializeApp();
     }
   } catch (e) {
