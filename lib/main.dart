@@ -28,6 +28,23 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Force any error to display visibly on screen instead of staying blank
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      color: Colors.white,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: SelectableText(
+            'App Startup Error:\n\n${details.exceptionAsString()}',
+            style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  };
+
   // ONLY initialize window_manager on Windows desktop!
   if (!kIsWeb && Platform.isWindows) {
     await windowManager.ensureInitialized();
@@ -43,15 +60,11 @@ void main() async {
     });
   }
 
-  // Safe Firebase Initialization
+  // Always use DefaultFirebaseOptions.currentPlatform (works for Web AND iOS)
   try {
-    if (kIsWeb) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } else {
-      await Firebase.initializeApp();
-    }
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e) {
     debugPrint("Firebase init note: $e");
   }
@@ -774,6 +787,14 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     );
   }
   void _listenToCloudFirestore() {
+    if (Firebase.apps.isEmpty) {
+      debugPrint("Firebase not ready; skipping live Firestore listener.");
+      setState(() {
+        _syncHealthStatus = 'QUEUED';
+        _syncHealthLabel = 'Offline Mode';
+      });
+      return;
+    }
     final db = FirebaseFirestore.instance;
 
     _metadataSub = db.collection('app_metadata').doc('master_config').snapshots().listen((doc) {
@@ -2740,7 +2761,7 @@ Timer? _saveDebounceTimer;
       if (!kIsWeb) {
         await LocalDriveManager.writeToDrive(appState);
       }
-
+      if (Firebase.apps.isNotEmpty) {
       // Sync to Cloud Firestore for both Windows and Web/iPad
       try {
         final db = FirebaseFirestore.instance;
@@ -2789,8 +2810,9 @@ Timer? _saveDebounceTimer;
           });
         }
       }
-    });
+  }});
   }
+
 void _markCustomBillAsPaid(dynamic truckEntry, double settleAmount, {bool isBuyerSide = false, bool isBothSides = false}) {
   if (settleAmount <= 0) {
     ScaffoldMessenger.of(context).showSnackBar(
