@@ -23,29 +23,45 @@ jobs:
         with:
           flutter-version: '3.27.4'
           channel: 'stable'
-          cache: true
+          cache: false
 
-      - name: Prepare Clean Workspace
+      - name: Revert Experimental iOS Multi-Window
         run: |
+          # 1. Restore the standard, stable single-window AppDelegate
+          cat << 'EOF' > ios/Runner/AppDelegate.swift
+          import UIKit
+          import Flutter
+
+          @UIApplicationMain
+          @objc class AppDelegate: FlutterAppDelegate {
+            override func application(
+              _ application: UIApplication,
+              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+            ) -> Bool {
+              GeneratedPluginRegistrant.register(with: self)
+              return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+            }
+          }
+          EOF
+
+          # 2. Delete the unsupported experimental SceneDelegate
+          rm -f ios/Runner/SceneDelegate.swift
+
+          # 3. Safely strip the Scene Manifest from Info.plist
+          plutil -remove UIApplicationSceneManifest ios/Runner/Info.plist || true
+
+      - name: Lock Target & Prepare Workspace
+        run: |
+          # Enforce iOS 15.5 across all Apple config files
+          sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile || true
+          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.5" {} + || true
+          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
+          
+          # Clean and install pods
           flutter clean
           flutter pub get
           cd ios
           rm -rf Pods Podfile.lock .symlinks build
-          cd ..
-
-      - name: Lock Deployment Target to 15.5
-        run: |
-          # 1. Force 15.5 in Podfile platform
-          sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile || true
-
-          # 2. Update all occurrences of MinimumOSVersion in every plist under ios
-          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.5" {} + || true
-
-          # 3. Force IPHONEOS_DEPLOYMENT_TARGET in project.pbxproj to 15.5
-          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
-
-          # 4. Install pods with repo update
-          cd ios
           pod install --repo-update
           cd ..
 
