@@ -25,7 +25,15 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Prepare Clean Workspace
+      - name: Enforce iOS 13.0 Target Across All Configs
+        run: |
+          # Force 13.0 in Podfile
+          sed -i '' "s/platform :ios, .*/platform :ios, '13.0'/g" ios/Podfile || true
+          
+          # Force 13.0 everywhere in Xcode project configuration
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' ios/Runner.xcodeproj/project.pbxproj
+
+      - name: Clean and Prepare Workspace
         run: |
           flutter clean
           flutter pub get
