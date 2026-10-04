@@ -33,4 +33,14 @@ class DefaultFirebaseOptions {
     projectId: "cocotrade-erp-acc57",
     storageBucket: "cocotrade-erp-acc57.appspot.com",
   );
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: "AIzaSyBXdp9bZ9yeXe-BEtYHcz7GxBKq0gaX7W4", // same web/project API key
+    appId: "1:668896823878:web:f15e19992a49b081a69847", // or reuse web appId
+    messagingSenderId: "1011382913553",
+    projectId: "cocotrade-erp-acc57",
+    storageBucket: "cocotrade-erp-acc57.appspot.com",
+    iosBundleId: "com.parekhdesign.cocotradeerp",
+  );
 }
+  
+  
