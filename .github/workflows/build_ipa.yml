@@ -28,9 +28,10 @@ jobs:
 
       - name: Install dependencies
         run: |
+          flutter clean
           flutter pub get
           cd ios
-          rm -f Podfile.lock
+          rm -rf Podfile.lock Pods .symlinks
           pod install --repo-update
           cd ..
 
