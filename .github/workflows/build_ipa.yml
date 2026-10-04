@@ -27,7 +27,6 @@ jobs:
 
       - name: Repair Original iOS Project
         run: |
-          # 1. Revert to the stable AppDelegate
           cat << 'EOF' > ios/Runner/AppDelegate.swift
           import UIKit
           import Flutter
@@ -44,7 +43,6 @@ jobs:
           }
           EOF
 
-          # 2. Provide a dummy SceneDelegate to satisfy Xcode's missing file error
           cat << 'EOF' > ios/Runner/SceneDelegate.swift
           import UIKit
           import Flutter
@@ -55,17 +53,23 @@ jobs:
           }
           EOF
 
-          # 3. Strip the Scene Manifest so iOS boots properly via AppDelegate
           plutil -remove UIApplicationSceneManifest ios/Runner/Info.plist || true
 
-      - name: Lock Target & Prepare Workspace
+      - name: Lock Target, Fix Linkage, and Inject Privacy Strings
         run: |
-          # Enforce iOS 15.5 across all Apple config files
+          # 1. Force static linkage to bypass Sideloadly framework signing limits
+          sed -i '' "s/use_frameworks!/use_frameworks! :linkage => :static/g" ios/Podfile || true
+          
+          # 2. Inject required privacy strings to prevent iOS sandbox crashes
+          plutil -insert NSCameraUsageDescription -string "Required for barcode and document scanning" ios/Runner/Info.plist || true
+          plutil -insert NSPhotoLibraryUsageDescription -string "Required for file backups" ios/Runner/Info.plist || true
+          plutil -insert NSMicrophoneUsageDescription -string "Required for camera module" ios/Runner/Info.plist || true
+          
+          # 3. Enforce iOS 15.5 across all Apple config files
           sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile || true
           find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.5" {} + || true
           find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
           
-          # Clean and install pods
           flutter clean
           flutter pub get
           cd ios
