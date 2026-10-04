@@ -25,25 +25,30 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Clean & Enforce iOS 13.0 Everywhere
+      - name: Prepare Clean Workspace
         run: |
-          # 1. Update Podfile platform header
-          sed -i '' "s/platform :ios, .*/platform :ios, '13.0'/g" ios/Podfile || true
-
-          # 2. Update Xcode project deployment targets
-          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' {} +
-
-          # 3. Clean environment
           flutter clean
           flutter pub get
           cd ios
           rm -rf Pods Podfile.lock .symlinks build
           cd ..
 
+      - name: Lock Deployment Target to 13.0
+        run: |
+          # Overwrite all occurrences of MinimumOSVersion in every plist under ios
+          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "13.0" {} + || true
+
+          # Force IPHONEOS_DEPLOYMENT_TARGET in project.pbxproj
+          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' {} +
+
+          # Run pod install with explicit platform repo update
+          cd ios
+          pod install --repo-update
+          cd ..
+
       - name: Build Unsigned iOS Application
         run: |
-          # Build with deployment target override passed directly to Xcode
-          flutter build ios --release --no-codesign --extra-gen-snapshot-options=--save-debugging-info
+          flutter build ios --release --no-codesign
 
       - name: Package Payload and IPA
         run: |
