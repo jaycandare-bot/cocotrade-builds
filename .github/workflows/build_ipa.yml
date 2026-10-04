@@ -25,45 +25,17 @@ jobs:
           channel: 'stable'
           cache: false
 
-      - name: Revert Experimental iOS Multi-Window
+      - name: Regenerate Pristine iOS Folder
         run: |
-          # 1. Restore the standard, stable single-window AppDelegate
-          cat << 'EOF' > ios/Runner/AppDelegate.swift
-          import UIKit
-          import Flutter
-
-          @UIApplicationMain
-          @objc class AppDelegate: FlutterAppDelegate {
-            override func application(
-              _ application: UIApplication,
-              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-            ) -> Bool {
-              GeneratedPluginRegistrant.register(with: self)
-              return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-            }
-          }
-          EOF
-
-          # 2. Delete the unsupported experimental SceneDelegate
-          rm -f ios/Runner/SceneDelegate.swift
-
-          # 3. Safely strip the Scene Manifest from Info.plist
-          plutil -remove UIApplicationSceneManifest ios/Runner/Info.plist || true
-
-      - name: Lock Target & Prepare Workspace
-        run: |
-          # Enforce iOS 15.5 across all Apple config files
-          sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile || true
-          find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.5" {} + || true
-          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
+          # 1. Completely delete the out-of-sync iOS folder
+          rm -rf ios
           
-          # Clean and install pods
-          flutter clean
-          flutter pub get
-          cd ios
-          rm -rf Pods Podfile.lock .symlinks build
-          pod install --repo-update
-          cd ..
+          # 2. Generate a brand new iOS folder perfectly matched to Flutter 3.27.4
+          flutter create --platforms=ios .
+          
+          # 3. Enforce the iOS 15.5 target required by Firebase and mobile_scanner
+          sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile
+          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
 
       - name: Build Unsigned iOS Application
         run: |
