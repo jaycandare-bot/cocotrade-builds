@@ -18,7 +18,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:window_manager/window_manager.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_selector/file_selector.dart';
@@ -28,39 +27,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Force any error to display visibly on screen instead of staying blank
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return Material(
-      color: Colors.white,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: SelectableText(
-            'App Startup Error:\n\n${details.exceptionAsString()}',
-            style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  };
-
-  // ONLY initialize window_manager on Windows desktop!
-  if (!kIsWeb && Platform.isWindows) {
-    await windowManager.ensureInitialized();
-
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(1280, 800),
-      center: true,
-      title: 'CocoTrade ERP',
-    );
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
-  }
-
-  // Always use DefaultFirebaseOptions.currentPlatform (works for Web AND iOS)
+  // Safe Firebase Initialization
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,

@@ -1,7 +1,7 @@
 name: Build iOS IPA
 
 on:
-  workflow_dispatch: # Allows manual trigger from the GitHub web UI
+  workflow_dispatch:
   push:
     branches: [ main, master ]
 
@@ -22,11 +22,18 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.6' # Matches your local environment
           channel: 'stable'
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          flutter clean
+          flutter pub get
+          cd ios
+          rm -rf Pods Podfile.lock .symlinks
+          pod install --repo-update
+          cd ..
 
       - name: Build iOS Application (Unsigned IPA)
         run: |

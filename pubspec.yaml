@@ -11,7 +11,6 @@ dependencies:
     sdk: flutter
   permission_handler: ^11.3.0 
   encrypt: ^5.0.3
-  file_selector: ^1.0.3
   pdf: ^3.10.7
   printing: ^5.11.1
   shared_preferences: ^2.2.2
@@ -19,8 +18,7 @@ dependencies:
   path_provider: ^2.1.4
   share_plus: ^7.2.2
   intl: ^0.19.0
-  crypto: ^3.0.5
-  window_manager: ^0.3.8
+  crypto: ^3.0.5  
   qr_flutter: ^4.1.0
   mobile_scanner: ^5.1.1
   http: ^1.2.0
