@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "cocotrade-erp"
-  }
+  },
+  "targets": {
+    "cocotrade-erp": {
+      "hosting": {
+        "web": [
+          "cocotrade-erp"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

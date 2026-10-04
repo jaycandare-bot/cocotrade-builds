@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "668896823878",
+    "project_id": "cocotrade-erp-acc57",
+    "storage_bucket": "cocotrade-erp-acc57.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:668896823878:android:667c8e38931c9daca69847",
+        "android_client_info": {
+          "package_name": "com.example.cocotrade_erp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIhtG_hnJQbZOSJDzMkoCBUtbAHeqAuC8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
