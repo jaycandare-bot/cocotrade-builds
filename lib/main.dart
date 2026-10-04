@@ -20,7 +20,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
-import 'package:file_selector/file_selector.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -11770,8 +11770,8 @@ SingleChildScrollView(
                 icon: const Icon(Icons.folder_open, size: 16),
                 label: const Text('Change Folder', style: TextStyle(fontSize: 11.5)),
                 onPressed: () async {
-                  final String? selectedDirectory = await getDirectoryPath();
-                  if (selectedDirectory != null) {
+              final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+              if (selectedDirectory != null) {
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.setString('custom_pdf_save_dir', selectedDirectory);
                     setState(() => _customPdfSaveDir = selectedDirectory);
@@ -11872,12 +11872,13 @@ SingleChildScrollView(
                   final fullJson = _generateFullDatabaseJson();
                   final encrypted = SecurityHelper.encrypt(fullJson);
 
-                  final FileSaveLocation? saveLoc = await getSaveLocation(
-                    suggestedName: 'cocotrade_backup_$nowStr.secure',
-                  );
+                  final String? savePath = await FilePicker.platform.saveFile(
+                dialogTitle: 'Save Backup',
+                fileName: 'cocotrade_backup_$nowStr.secure',
+              );
 
-                  if (saveLoc != null) {
-                    final file = File(saveLoc.path);
+              if (savePath != null) {
+                final file = File(savePath);
                     await file.writeAsString(encrypted, flush: true);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -11908,14 +11909,14 @@ SingleChildScrollView(
               label: const Text('Restore from File', style: TextStyle(color: Color(0xFF047857))),
               onPressed: () async {
                 try {
-                  const XTypeGroup typeGroup = XTypeGroup(
-                    label: 'CocoTrade Backups',
-                    extensions: ['secure', 'json'],
-                  );
-                  final XFile? selectedFile = await openFile(acceptedTypeGroups: [typeGroup]);
+              final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: ['secure', 'json'],
+              );
 
-                  if (selectedFile != null) {
-                    final rawContent = await selectedFile.readAsString();
+              if (result != null && result.files.single.path != null) {
+                final file = File(result.files.single.path!);
+                final rawContent = await file.readAsString();
                     Map<String, dynamic> dataToApply;
                     try {
                       final decrypted = SecurityHelper.decrypt(rawContent);
