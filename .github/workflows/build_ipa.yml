@@ -25,16 +25,15 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Enforce iOS 13.0 Target Across All Configs
+      - name: Configure iOS Target and Build Environment
         run: |
-          # Force 13.0 in Podfile
+          # 1. Update Podfile platform
           sed -i '' "s/platform :ios, .*/platform :ios, '13.0'/g" ios/Podfile || true
           
-          # Force 13.0 everywhere in Xcode project configuration
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' ios/Runner.xcodeproj/project.pbxproj
+          # 2. Update all occurrences in Xcode project configuration
+          find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' {} +
 
-      - name: Clean and Prepare Workspace
-        run: |
+          # 3. Clean workspace completely
           flutter clean
           flutter pub get
           cd ios
@@ -42,7 +41,13 @@ jobs:
           cd ..
 
       - name: Build Unsigned iOS Application
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
         run: |
+          flutter build ios --release --no-codesign --config-only
+          cd ios
+          pod install --repo-update
+          cd ..
           flutter build ios --release --no-codesign
 
       - name: Package Payload and IPA
