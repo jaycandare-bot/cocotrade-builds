@@ -11473,62 +11473,61 @@ _commitToLocalDrive();
   }
 
   
-  void _showStorageSettingsDialog() {
-_cNameCtrl.text = _companyName;
-_cPhoneCtrl.text = _companyPhone;
-_cAddressCtrl.text = _companyAddress;
-_cTaglineCtrl.text = _myCompany.tagline;
-_sellerMsgCtrl.text = _sellerMsgTemplate;
-_buyerMsgCtrl.text = _buyerMsgTemplate;
-_cInvocationCtrl.text = _myCompany.invocation;
-final invocationCtrl = TextEditingController(text: _myCompany.invocation);
+void _showStorageSettingsDialog() {
+    _cNameCtrl.text = _companyName;
+    _cPhoneCtrl.text = _companyPhone;
+    _cAddressCtrl.text = _companyAddress;
+    _cTaglineCtrl.text = _myCompany.tagline;
+    _sellerMsgCtrl.text = _sellerMsgTemplate;
+    _buyerMsgCtrl.text = _buyerMsgTemplate;
+    _cInvocationCtrl.text = _myCompany.invocation;
+    final invocationCtrl = TextEditingController(text: _myCompany.invocation);
 
-bool isSyncing = false;
-showDialog(
-  context: context,
-  builder: (ctx) => StatefulBuilder(
-    builder: (context, setSettingsState) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.settings_outlined, color: Color(0xFF047857)),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'ERP Settings',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: isMobile ? MediaQuery.of(context).size.width * 0.95 : 650,
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: DefaultTabController(
-            length: 6, // FIX: MUST BE EXACTLY 6 TO PREVENT CRASH
-            child: Column(
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSettingsState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
               children: [
-                const TabBar(
-                  isScrollable: true,
-                  labelColor: Color(0xFF047857),
-                  unselectedLabelColor: Color(0xFF64748B),
-                  indicatorColor: Color(0xFF047857),
-                  tabs: [
-                    Tab(text: 'Security'),
-                    Tab(text: 'Bank Accounts'),
-                    Tab(text: 'SMS Templates'),
-                    Tab(text: 'Letterhead'),
-                    Tab(text: 'Data & Backup'),
-                    Tab(text: 'Fin. Year'),
-                  ],
-                ),
-                const SizedBox(height: 14),
+                Icon(Icons.settings_outlined, color: Color(0xFF047857)),
+                SizedBox(width: 10),
                 Expanded(
-                  child: TabBarView(
-                    children: [
-                          // 1. Security Tab
+                  child: Text(
+                    'ERP Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: isMobile ? MediaQuery.of(context).size.width * 0.95 : 650,
+              height: MediaQuery.of(context).size.height * 0.75,
+              child: DefaultTabController(
+                length: 6, // FIX: EXACTLY 6 TABS TO PREVENT CRASH
+                child: Column(
+                  children: [
+                    const TabBar(
+                      isScrollable: true,
+                      labelColor: Color(0xFF047857),
+                      unselectedLabelColor: Color(0xFF64748B),
+                      indicatorColor: Color(0xFF047857),
+                      tabs: [
+                        Tab(text: 'Security'),
+                        Tab(text: 'Bank Accounts'),
+                        Tab(text: 'SMS Templates'),
+                        Tab(text: 'Letterhead'),
+                        Tab(text: 'Data & Backup'),
+                        Tab(text: 'Fin. Year'),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          // TAB 1: SECURITY
                           SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -11540,43 +11539,43 @@ showDialog(
                                 _customField('Update 4-Digit PIN', _settingsPinCtrl, hint: _savedPin, isNum: true),
                                 const SizedBox(height: 20),
                                 FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF047857),
-                                minimumSize: const Size(double.infinity, 44),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () async {
-                                final newEmail = _settingsEmailCtrl.text.trim();
-                                final newPass = _settingsPassCtrl.text.trim();
-                                final newPin = _settingsPinCtrl.text.trim();
-                                final prefs = await SharedPreferences.getInstance();
-                                if (newPin.isNotEmpty && newPin.length == 4) {
-                                  await prefs.setString(_prefPinKey, newPin);
-                                  setState(() => _savedPin = newPin);
-                                }
-                                if (newEmail.isNotEmpty) {
-                                  await prefs.setString(_prefEmailKey, newEmail);
-                                  setState(() => _savedEmail = newEmail);
-                                }
-                                if (newPass.isNotEmpty) {
-                                  await prefs.setString(_prefPassKey, newPass);
-                                  setState(() => _savedPassword = newPass);
-                                }
-                                
-                                _commitToLocalDrive(); // INSTANTLY SYNC TO FIREBASE
-                                
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Credentials Updated & Synced!')),
-                                );
-                              },
-                              child: const Text('Save Credentials'),
-                            ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF047857),
+                                    minimumSize: const Size(double.infinity, 44),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  onPressed: () async {
+                                    final newEmail = _settingsEmailCtrl.text.trim();
+                                    final newPass = _settingsPassCtrl.text.trim();
+                                    final newPin = _settingsPinCtrl.text.trim();
+                                    final prefs = await SharedPreferences.getInstance();
+                                    if (newPin.isNotEmpty && newPin.length == 4) {
+                                      await prefs.setString(_prefPinKey, newPin);
+                                      setState(() => _savedPin = newPin);
+                                    }
+                                    if (newEmail.isNotEmpty) {
+                                      await prefs.setString(_prefEmailKey, newEmail);
+                                      setState(() => _savedEmail = newEmail);
+                                    }
+                                    if (newPass.isNotEmpty) {
+                                      await prefs.setString(_prefPassKey, newPass);
+                                      setState(() => _savedPassword = newPass);
+                                    }
+                                    
+                                    _commitToLocalDrive(); // INSTANTLY PUSHES NEW PIN TO FIREBASE
+                                    
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Credentials Updated & Synced!')),
+                                    );
+                                  },
+                                  child: const Text('Save Credentials'),
+                                ),
                               ],
                             ),
                           ),
 
-                          // 2. Bank Accounts Tab (CLEAN RESPONSIVE CARDS)
+                          // TAB 2: BANK ACCOUNTS
                           SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -11622,7 +11621,6 @@ showDialog(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        // Header: Icon + Bank Name + Active Badge
                                         Row(
                                           children: [
                                             Icon(Icons.account_balance_rounded, size: 18, color: isSelected ? const Color(0xFF047857) : const Color(0xFF64748B)),
@@ -11645,14 +11643,10 @@ showDialog(
                                         const SizedBox(height: 8),
                                         const Divider(height: 1, color: Color(0xFFF1F5F9)),
                                         const SizedBox(height: 8),
-
-                                        // Body: Full-width Account details
                                         Text('A/c: ${bank.account}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                                         const SizedBox(height: 2),
                                         Text('IFSC: ${bank.ifsc}  •  Branch: ${bank.branch}', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                         const SizedBox(height: 8),
-
-                                        // Footer: Action Buttons Row
                                         Row(
                                           children: [
                                             if (!isSelected)
@@ -11706,7 +11700,7 @@ showDialog(
                             ),
                           ),
 
-                          // 3. SMS Templates Tab
+                          // TAB 3: SMS TEMPLATES
                           SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -11736,10 +11730,7 @@ showDialog(
                                     });
                                     Navigator.pop(ctx);
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        backgroundColor: Color(0xFF047857),
-                                        content: Text('Message templates saved successfully!'),
-                                      ),
+                                      const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Message templates saved successfully!')),
                                     );
                                   },
                                   child: const Text('Save Templates'),
@@ -11748,102 +11739,102 @@ showDialog(
                             ),
                           ),
 
-                          // Inside the 4th Tab (Letterhead) in _showStorageSettingsDialog():
-SingleChildScrollView(
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text('Edit Business Profile & Letterhead', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-      const SizedBox(height: 12),
-      _customField('Invoice Header Name (Company Name for Invoices)', _cNameCtrl),
-      const SizedBox(height: 12),
-      _customField('Statement Header Name (Company Name for Buyer/Seller Statements)', _cStatementNameCtrl..text = _myCompany.statementName),
-      const SizedBox(height: 12),
-      _customField('Address', _cAddressCtrl, maxLines: 2),
-      const SizedBox(height: 12),
-      _customField('Contact (Phone Numbers)', _cPhoneCtrl),
-      const SizedBox(height: 12),
-      _customField('Tagline / Subtitle', _cTaglineCtrl),
-      const SizedBox(height: 12),
-      _customField('Top Invocation', invocationCtrl),
-      const SizedBox(height: 20),
-      FilledButton(
-        style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFF047857),
-          minimumSize: const Size(double.infinity, 46),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-        onPressed: () async {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('company_name', _cNameCtrl.text.trim());
-          await prefs.setString('company_statement_name', _cStatementNameCtrl.text.trim());
-          await prefs.setString('company_phone', _cPhoneCtrl.text.trim());
-          await prefs.setString('company_address', _cAddressCtrl.text.trim());
-          await prefs.setString('company_tagline', _cTaglineCtrl.text.trim());
-          await prefs.setString('company_invocation', invocationCtrl.text.trim());
-          
-          setState(() {
-            _companyName = _cNameCtrl.text.trim();
-            _myCompany.name = _companyName;
-            _myCompany.statementName = _cStatementNameCtrl.text.trim();
-            _myCompany.tagline = _cTaglineCtrl.text.trim();
-            _myCompany.phone = _cPhoneCtrl.text.trim();
-            _myCompany.address = _cAddressCtrl.text.trim();
-            _myCompany.invocation = invocationCtrl.text.trim();
-          });
-          _commitToLocalDrive();
-          Navigator.pop(ctx);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Headers and profile updated successfully!')),
-          );
-        },
-        child: const Text('Save Letterhead Profile'),
-      ),
-      if (!kIsWeb && Platform.isWindows) ...[
-        const SizedBox(height: 16),
-        const Text('WINDOWS PDF SAVE DESTINATION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.8)),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _customPdfSaveDir?.isNotEmpty == true ? _customPdfSaveDir! : 'Default (Documents\\CocoTrade_PDFs)',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE2E8F0)),
-                icon: const Icon(Icons.folder_open, size: 16),
-                label: const Text('Change Folder', style: TextStyle(fontSize: 11.5)),
-                onPressed: () async {
-              final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-              if (selectedDirectory != null) {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString('custom_pdf_save_dir', selectedDirectory);
-                    setState(() => _customPdfSaveDir = selectedDirectory);
-                    setSettingsState(() {});
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-      ],
-    ],
-  ),
-),
+                          // TAB 4: LETTERHEAD
+                          SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Edit Business Profile & Letterhead', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                                const SizedBox(height: 12),
+                                _customField('Invoice Header Name (Company Name)', _cNameCtrl),
+                                const SizedBox(height: 12),
+                                _customField('Statement Header Name (Buyer/Seller Statements)', _cStatementNameCtrl),
+                                const SizedBox(height: 12),
+                                _customField('Address', _cAddressCtrl, maxLines: 2),
+                                const SizedBox(height: 12),
+                                _customField('Contact (Phone Numbers)', _cPhoneCtrl),
+                                const SizedBox(height: 12),
+                                _customField('Tagline / Subtitle', _cTaglineCtrl),
+                                const SizedBox(height: 12),
+                                _customField('Top Invocation', invocationCtrl),
+                                const SizedBox(height: 20),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF047857),
+                                    minimumSize: const Size(double.infinity, 46),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  onPressed: () async {
+                                    final prefs = await SharedPreferences.getInstance();
+                                    await prefs.setString('company_name', _cNameCtrl.text.trim());
+                                    await prefs.setString('company_statement_name', _cStatementNameCtrl.text.trim());
+                                    await prefs.setString('company_phone', _cPhoneCtrl.text.trim());
+                                    await prefs.setString('company_address', _cAddressCtrl.text.trim());
+                                    await prefs.setString('company_tagline', _cTaglineCtrl.text.trim());
+                                    await prefs.setString('company_invocation', invocationCtrl.text.trim());
+                                    
+                                    setState(() {
+                                      _companyName = _cNameCtrl.text.trim();
+                                      _myCompany.name = _companyName;
+                                      _myCompany.statementName = _cStatementNameCtrl.text.trim();
+                                      _myCompany.tagline = _cTaglineCtrl.text.trim();
+                                      _myCompany.phone = _cPhoneCtrl.text.trim();
+                                      _myCompany.address = _cAddressCtrl.text.trim();
+                                      _myCompany.invocation = invocationCtrl.text.trim();
+                                    });
+                                    _commitToLocalDrive();
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Headers and profile updated successfully!')),
+                                    );
+                                  },
+                                  child: const Text('Save Letterhead Profile'),
+                                ),
+                                if (!kIsWeb && Platform.isWindows) ...[
+                                  const SizedBox(height: 16),
+                                  const Text('WINDOWS PDF SAVE DESTINATION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.8)),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            _customPdfSaveDir?.isNotEmpty == true ? _customPdfSaveDir! : 'Default (Documents\\CocoTrade_PDFs)',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        FilledButton.tonalIcon(
+                                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE2E8F0)),
+                                          icon: const Icon(Icons.folder_open, size: 16),
+                                          label: const Text('Change Folder', style: TextStyle(fontSize: 11.5)),
+                                          onPressed: () async {
+                                            final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                                            if (selectedDirectory != null) {
+                                              final prefs = await SharedPreferences.getInstance();
+                                              await prefs.setString('custom_pdf_save_dir', selectedDirectory);
+                                              setState(() => _customPdfSaveDir = selectedDirectory);
+                                              setSettingsState(() {});
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
 
-                          // 5. Data & Backup Tab
-SingleChildScrollView(
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Container(
+                          // TAB 5: DATA & BACKUP
+                          SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
                                     color: _syncHealthStatus == 'CONNECTED'
@@ -11900,110 +11891,95 @@ SingleChildScrollView(
                                     ],
                                   ),
                                 ),
-      const SizedBox(height: 20),
-      const Text(
-        'LOCAL DATABASE BACKUP & RESTORE',
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.8),
-      ),
-      const SizedBox(height: 10),
-      Row(
-        children: [
-          Expanded(
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF047857),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.download_rounded, size: 16),
-              label: const Text('Export Backup File'),
-              onPressed: () async {
-                try {
-                  final nowStr = DateTime.now().toIso8601String().split('T')[0];
-                  final fullJson = _generateFullDatabaseJson();
-                  final encrypted = SecurityHelper.encrypt(fullJson);
+                                const SizedBox(height: 20),
+                                const Text('LOCAL DATABASE BACKUP & RESTORE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 0.8)),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: const Color(0xFF047857),
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        icon: const Icon(Icons.download_rounded, size: 16),
+                                        label: const Text('Export Backup File'),
+                                        onPressed: () async {
+                                          try {
+                                            final nowStr = DateTime.now().toIso8601String().split('T')[0];
+                                            final fullJson = _generateFullDatabaseJson();
+                                            final encrypted = SecurityHelper.encrypt(fullJson);
 
-                  final String? savePath = await FilePicker.platform.saveFile(
-                dialogTitle: 'Save Backup',
-                fileName: 'cocotrade_backup_$nowStr.secure',
-              );
+                                            final String? savePath = await FilePicker.platform.saveFile(
+                                              dialogTitle: 'Save Backup',
+                                              fileName: 'cocotrade_backup_$nowStr.secure',
+                                            );
 
-              if (savePath != null) {
-                final file = File(savePath);
-                    await file.writeAsString(encrypted, flush: true);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: const Color(0xFF047857),
-                          content: Text('Backup exported to ${file.path}'),
-                        ),
-                      );
-                    }
-                  }
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(backgroundColor: Colors.red, content: Text('Export failed: $e')),
-                  );
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                side: const BorderSide(color: Color(0xFF047857)),
-              ),
-              icon: const Icon(Icons.file_open_rounded, size: 16, color: Color(0xFF047857)),
-              label: const Text('Restore from File', style: TextStyle(color: Color(0xFF047857))),
-              onPressed: () async {
-                try {
-              final FilePickerResult? result = await FilePicker.platform.pickFiles(
-                type: FileType.custom,
-                allowedExtensions: ['secure', 'json'],
-              );
+                                            if (savePath != null) {
+                                              final file = File(savePath);
+                                              await file.writeAsString(encrypted, flush: true);
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(backgroundColor: const Color(0xFF047857), content: Text('Backup exported to ${file.path}')),
+                                                );
+                                              }
+                                            }
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(backgroundColor: Colors.red, content: Text('Export failed: $e')));
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          side: const BorderSide(color: Color(0xFF047857)),
+                                        ),
+                                        icon: const Icon(Icons.file_open_rounded, size: 16, color: Color(0xFF047857)),
+                                        label: const Text('Restore from File', style: TextStyle(color: Color(0xFF047857))),
+                                        onPressed: () async {
+                                          try {
+                                            final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                                              type: FileType.custom,
+                                              allowedExtensions: ['secure', 'json'],
+                                            );
+                                            if (result != null && result.files.single.path != null) {
+                                              final file = File(result.files.single.path!);
+                                              final rawContent = await file.readAsString();
+                                              Map<String, dynamic> dataToApply;
+                                              try {
+                                                final decrypted = SecurityHelper.decrypt(rawContent);
+                                                dataToApply = jsonDecode(decrypted);
+                                              } catch (_) {
+                                                dataToApply = jsonDecode(rawContent);
+                                              }
+                                              _applyStateFromMap(dataToApply);
+                                              await LocalDriveManager.writeToDrive(dataToApply);
+                                              await _commitToLocalDrive();
+                                              if (mounted) {
+                                                Navigator.pop(ctx);
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Database restored and synced across all devices!')),
+                                                );
+                                              }
+                                            }
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(backgroundColor: Colors.red, content: Text('Restore failed: $e')));
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
 
-              if (result != null && result.files.single.path != null) {
-                final file = File(result.files.single.path!);
-                final rawContent = await file.readAsString();
-                    Map<String, dynamic> dataToApply;
-                    try {
-                      final decrypted = SecurityHelper.decrypt(rawContent);
-                      dataToApply = jsonDecode(decrypted);
-                    } catch (_) {
-                      dataToApply = jsonDecode(rawContent);
-                    }
-
-                    _applyStateFromMap(dataToApply);
-                    await LocalDriveManager.writeToDrive(dataToApply);
-                    await _commitToLocalDrive(); // Re-syncs restored database to Firestore
-                    if (mounted) {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          backgroundColor: Color(0xFF047857),
-                          content: Text('Database restored and synced across all devices!'),
-                        ),
-                      );
-                    }
-                  }
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(backgroundColor: Colors.red, content: Text('Restore failed: $e')),
-                  );
-                }
-              },
-            ),
-          ),
-        ],
-      ),
-    ],
-  ),
-),
-
-                          // 6. Financial Year Tab
+                          // TAB 6: FIN. YEAR
                           SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -12039,6 +12015,12 @@ SingleChildScrollView(
                 ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close', style: TextStyle(color: Color(0xFF64748B))),
+              ),
+            ],
           );
         },
       ),
