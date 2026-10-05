@@ -986,7 +986,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     BankAccount(id: '2', name: "ICICI BANK", account: "0280005500946", ifsc: "ICIC0000280", branch: "KAKINADA"),
   ];
   List<SmsQueueItem> _smsQueue = [];
-  BankAccount _selectedBank = BankAccount(id: '1', name: "STATE BANK OF INDIA", account: "30554488991", ifsc: "SBIN0000054", branch: "MAIN BRANCH");
+  BankAccount _selectedBank = BankAccount(id: '1', name: "DEFAULT BANK", account: "000000000", ifsc: "DEFAULT", branch: "MAIN");
 
   final _confDateCtrl = TextEditingController();
   final _confRateCtrl = TextEditingController();
