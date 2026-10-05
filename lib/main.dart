@@ -8765,15 +8765,15 @@ _commitToLocalDrive();
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
-            child: isMobile
-                ? SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: 1250,
-                      child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-                    ),
-                  )
-                : _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
+            child: (isMobile || isTablet)
+            ? SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1250,
+                  child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
+                ),
+              )
+            : _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
           ),
       ],
     );
@@ -9279,10 +9279,15 @@ _commitToLocalDrive();
                 if (constraints.maxWidth < 1120) {
                   return SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: 1250,
-                      child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
-                    ),
+                    child: (isMobile || isTablet)
+            ? SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 1300,
+                  child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
+                ),
+              )
+            : _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
                   );
                 }
                 return _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance);
@@ -11564,12 +11569,19 @@ _commitToLocalDrive();
                                       setState(() => _savedEmail = newEmail);
                                     }
                                     if (newPass.isNotEmpty) {
-                                      await prefs.setString(_prefPassKey, newPass);
-                                      setState(() => _savedPassword = newPass);
-                                    }
-                                    Navigator.pop(ctx);
-                                  },
-                                  child: const Text('Save Credentials'),
+                                  await prefs.setString(_prefPassKey, newPass);
+                                  setState(() => _savedPassword = newPass);
+                                }
+                                
+                                // INSTANTLY SYNC NEW PIN TO FIREBASE
+                                _commitToLocalDrive();
+
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Credentials Updated & Synced!')),
+                                );
+                              },
+                              child: const Text('Save Credentials'),
                                 ),
                               ],
                             ),
