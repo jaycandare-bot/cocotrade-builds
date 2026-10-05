@@ -57,15 +57,12 @@ jobs:
 
       - name: Lock Target, Fix Linkage, and Inject Privacy Strings
         run: |
-          # 1. Force static linkage to bypass Sideloadly framework signing limits
           sed -i '' "s/use_frameworks!/use_frameworks! :linkage => :static/g" ios/Podfile || true
           
-          # 2. Inject required privacy strings to prevent iOS sandbox crashes
           plutil -insert NSCameraUsageDescription -string "Required for barcode and document scanning" ios/Runner/Info.plist || true
           plutil -insert NSPhotoLibraryUsageDescription -string "Required for file backups" ios/Runner/Info.plist || true
           plutil -insert NSMicrophoneUsageDescription -string "Required for camera module" ios/Runner/Info.plist || true
           
-          # 3. Enforce iOS 15.5 across all Apple config files
           sed -i '' "s/platform :ios, .*/platform :ios, '15.5'/g" ios/Podfile || true
           find ios -name "*.plist" -exec plutil -replace MinimumOSVersion -string "15.5" {} + || true
           find ios -name "project.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 15.5/g' {} +
@@ -81,10 +78,14 @@ jobs:
         run: |
           flutter build ios --release --no-codesign
 
-      - name: Package Payload and IPA
+      - name: Package Payload and Inject Firebase Config
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
+          
+          # Force inject the Firebase config directly into the app bundle root
+          cp ios/Runner/GoogleService-Info.plist Payload/Runner.app/GoogleService-Info.plist || true
+          
           zip -r CocoTradeERP.ipa Payload
 
       - name: Upload IPA Artifact
