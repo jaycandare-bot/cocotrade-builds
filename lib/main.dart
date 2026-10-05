@@ -11473,7 +11473,7 @@ _commitToLocalDrive();
   }
 
   
-  void _showStorageSettingsDialog() void _showStorageSettingsDialog() {
+  void _showStorageSettingsDialog() {
 _cNameCtrl.text = _companyName;
 _cPhoneCtrl.text = _companyPhone;
 _cAddressCtrl.text = _companyAddress;
