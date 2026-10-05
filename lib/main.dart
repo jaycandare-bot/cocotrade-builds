@@ -11485,20 +11485,24 @@ void _showStorageSettingsDialog() {
 
     showDialog(
       context: context,
+      barrierDismissible: false, // FIX 1: Absolutely prevents stray screen taps from closing the dialog
       builder: (ctx) => StatefulBuilder(
         builder: (context, setSettingsState) {
           return AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
+            title: Row(
               children: [
-                Icon(Icons.settings_outlined, color: Color(0xFF047857)),
-                SizedBox(width: 10),
-                Expanded(
+                const Icon(Icons.settings_outlined, color: Color(0xFF047857)),
+                const SizedBox(width: 10),
+                const Expanded(
                   child: Text(
                     'ERP Settings',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                    overflow: TextOverflow.ellipsis,
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.red),
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -11506,7 +11510,7 @@ void _showStorageSettingsDialog() {
               width: isMobile ? MediaQuery.of(context).size.width * 0.95 : 650,
               height: MediaQuery.of(context).size.height * 0.75,
               child: DefaultTabController(
-                length: 6, // GUARANTEED EXACTLY 6 TABS
+                length: 6,
                 child: Column(
                   children: [
                     const TabBar(
@@ -11562,7 +11566,7 @@ void _showStorageSettingsDialog() {
                                       setState(() => _savedPassword = newPass);
                                     }
                                     
-                                    _commitToLocalDrive(); // INSTANTLY SYNC TO FIREBASE
+                                    _commitToLocalDrive(); // INSTANTLY SYNC NEW PIN TO FIREBASE
                                     
                                     Navigator.pop(ctx);
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -11583,14 +11587,9 @@ void _showStorageSettingsDialog() {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    const Expanded(
-                                      child: Text('Company Bank Accounts', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
-                                    ),
+                                    const Expanded(child: Text('Company Bank Accounts', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5))),
                                     FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: const Color(0xFF047857),
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      ),
+                                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
                                       icon: const Icon(Icons.add, size: 14),
                                       label: const Text('Add Bank', style: TextStyle(fontSize: 11.5)),
                                       onPressed: () => _showAddEditBankDialog(onSaved: () => setSettingsState(() {})),
@@ -11599,7 +11598,13 @@ void _showStorageSettingsDialog() {
                                 ),
                                 const SizedBox(height: 12),
                                 ..._bankAccounts.map((bank) {
-                                  final bool isSelected = _selectedBank.id == bank.id;
+                                  bool isSelected = false;
+                                  try {
+                                    isSelected = _selectedBank.id == bank.id;
+                                  } catch (_) {
+                                    // FIX 2: Swallows the fatal crash if the variable was left uninitialized 
+                                  }
+                                  
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 12),
                                     padding: const EdgeInsets.all(12),
@@ -11629,7 +11634,9 @@ void _showStorageSettingsDialog() {
                                             IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () {
                                               setState(() {
                                                 _bankAccounts.remove(bank);
-                                                if (_selectedBank.id == bank.id) _selectedBank = _bankAccounts.first;
+                                                if (_bankAccounts.isNotEmpty) {
+                                                    try { if (_selectedBank.id == bank.id) _selectedBank = _bankAccounts.first; } catch (_) {}
+                                                }
                                               });
                                               setSettingsState(() {});
                                               _commitToLocalDrive();
@@ -11786,7 +11793,7 @@ void _showStorageSettingsDialog() {
                                   decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(10)),
                                   child: DropdownButtonHideUnderline(
                                     child: DropdownButton<String>(
-                                      value: _selectedFinancialYear,
+                                      value: _financialYears.contains(_selectedFinancialYear) ? _selectedFinancialYear : _financialYears.first,
                                       isExpanded: true,
                                       items: _financialYears.map((fy) => DropdownMenuItem(value: fy, child: Text('FY $fy'))).toList(),
                                       onChanged: (val) {
@@ -11808,9 +11815,6 @@ void _showStorageSettingsDialog() {
                 ),
               ),
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: Color(0xFF64748B)))),
-            ],
           );
         },
       ),
