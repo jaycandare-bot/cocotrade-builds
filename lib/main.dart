@@ -1140,7 +1140,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               ],
             ),
             content: SizedBox(
-              width: 480,
+              width: 580,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1582,7 +1582,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text('Edit Payment Group', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
           content: SizedBox(
-            width: 380,
+            width: 460,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -3010,29 +3010,32 @@ void _updateNextInvoiceNumber() {
     if (num > 0) p.add(three(num));
     return p.join(" ").trim();
   }
-// Helper to handle responsive rows safely (must be private _responsiveRow)
+
+  // Helper to handle responsive rows safely (must be private _responsiveRow)
   Widget _responsiveRow(List<Widget> children, {CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.end}) {
-    if (isMobile) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children
-            .where((c) => !(c is SizedBox && c.width != null && (c.height == null || c.height == 0)))
-            .map((c) {
-          Widget inner = c;
-          if (c is Expanded) {
-            inner = c.child;
-          } else if (c is Flexible) {
-            inner = c.child;
-          }
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: inner,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // If available width is less than 850px (e.g. iPad with sidebar open), stack fields vertically
+        if (constraints.maxWidth < 850) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children
+                .where((c) => !(c is SizedBox && c.width != null && (c.height == null || c.height == 0)))
+                .map((c) {
+              Widget inner = c;
+              if (c is Expanded) inner = c.child;
+              else if (c is Flexible) inner = c.child;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: inner,
+              );
+            }).toList(),
           );
-        }).toList(),
-      );
-    } else {
-      return Row(crossAxisAlignment: crossAxisAlignment, children: children);
-    }
+        } else {
+          return Row(crossAxisAlignment: crossAxisAlignment, children: children);
+        }
+      },
+    );
   }
 
   // Helper for license key checks (must be private _verifyLicenseKey)
@@ -8692,6 +8695,7 @@ _commitToLocalDrive();
           }),
         ],
         // Statement Data Table
+        // Statement Data Table
         if (_repBuyer.trim().isEmpty)
           Container(
             width: double.infinity,
@@ -9200,7 +9204,7 @@ _commitToLocalDrive();
           const SizedBox(height: 4),
         ],
 
-        // 4. Main Statement Table Container
+       // 4. Main Statement Table Container
         if (_repSeller.trim().isEmpty)
           Container(
             width: double.infinity,
@@ -9229,15 +9233,20 @@ _commitToLocalDrive();
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
-            child: isMobile
-                ? SingleChildScrollView(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 1120) {
+                  return SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: SizedBox(
                       width: 1120,
                       child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
                     ),
-                  )
-                : _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
+                  );
+                }
+                return _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance);
+              },
+            ),
           ),
       ],
     );
