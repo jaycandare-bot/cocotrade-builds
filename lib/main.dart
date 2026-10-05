@@ -11473,61 +11473,61 @@ _commitToLocalDrive();
   }
 
   
-  void _showStorageSettingsDialog() {
-    _cNameCtrl.text = _companyName;
-    _cPhoneCtrl.text = _companyPhone;
-    _cAddressCtrl.text = _companyAddress;
-    _cTaglineCtrl.text = _myCompany.tagline;
-    _sellerMsgCtrl.text = _sellerMsgTemplate;
-    _buyerMsgCtrl.text = _buyerMsgTemplate;
-    _cInvocationCtrl.text = _myCompany.invocation;
-    final invocationCtrl = TextEditingController(text: _myCompany.invocation);
+  void _showStorageSettingsDialog() void _showStorageSettingsDialog() {
+_cNameCtrl.text = _companyName;
+_cPhoneCtrl.text = _companyPhone;
+_cAddressCtrl.text = _companyAddress;
+_cTaglineCtrl.text = _myCompany.tagline;
+_sellerMsgCtrl.text = _sellerMsgTemplate;
+_buyerMsgCtrl.text = _buyerMsgTemplate;
+_cInvocationCtrl.text = _myCompany.invocation;
+final invocationCtrl = TextEditingController(text: _myCompany.invocation);
 
-    bool isSyncing = false;
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setSettingsState) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Row(
-              children: [
-                const Icon(Icons.settings_outlined, color: Color(0xFF047857)),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'ERP Settings',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+bool isSyncing = false;
+showDialog(
+  context: context,
+  builder: (ctx) => StatefulBuilder(
+    builder: (context, setSettingsState) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.settings_outlined, color: Color(0xFF047857)),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'ERP Settings',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            content: SizedBox(
-              width: MediaQuery.of(context).size.width * 0.92,
-              height: MediaQuery.of(context).size.height * 0.70,
-              child: DefaultTabController(
-                length: 6, // FIX: This matches the 6 tabs below to prevent the crash
-                child: Column(
-                  children: [
-                    const TabBar(
-  isScrollable: true,
-  labelColor: const Color(0xFF047857),
-  unselectedLabelColor: const Color(0xFF64748B),
-  indicatorColor: const Color(0xFF047857),
-  tabs: const [
-    Tab(text: 'Security'),
-    Tab(text: 'Bank Accounts'),
-    Tab(text: 'SMS Templates'),
-    Tab(text: 'Letterhead'),
-    Tab(text: 'Data & Backup'),
-    Tab(text: 'Fin. Year'),
-  ],
-),
-                    const SizedBox(height: 14),
-                    Expanded(
-                      child: TabBarView(
-                        children: [
+          ],
+        ),
+        content: SizedBox(
+          width: isMobile ? MediaQuery.of(context).size.width * 0.95 : 650,
+          height: MediaQuery.of(context).size.height * 0.75,
+          child: DefaultTabController(
+            length: 6, // FIX: MUST BE EXACTLY 6 TO PREVENT CRASH
+            child: Column(
+              children: [
+                const TabBar(
+                  isScrollable: true,
+                  labelColor: Color(0xFF047857),
+                  unselectedLabelColor: Color(0xFF64748B),
+                  indicatorColor: Color(0xFF047857),
+                  tabs: [
+                    Tab(text: 'Security'),
+                    Tab(text: 'Bank Accounts'),
+                    Tab(text: 'SMS Templates'),
+                    Tab(text: 'Letterhead'),
+                    Tab(text: 'Data & Backup'),
+                    Tab(text: 'Fin. Year'),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: TabBarView(
+                    children: [
                           // 1. Security Tab
                           SingleChildScrollView(
                             child: Column(
@@ -11540,39 +11540,38 @@ _commitToLocalDrive();
                                 _customField('Update 4-Digit PIN', _settingsPinCtrl, hint: _savedPin, isNum: true),
                                 const SizedBox(height: 20),
                                 FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF047857),
-                                    minimumSize: const Size(double.infinity, 44),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  onPressed: () async {
-                                    final newEmail = _settingsEmailCtrl.text.trim();
-                                    final newPass = _settingsPassCtrl.text.trim();
-                                    final newPin = _settingsPinCtrl.text.trim();
-                                    final prefs = await SharedPreferences.getInstance();
-                                    if (newPin.isNotEmpty && newPin.length == 4) {
-                                      await prefs.setString(_prefPinKey, newPin);
-                                      setState(() => _savedPin = newPin);
-                                    }
-                                    if (newEmail.isNotEmpty) {
-                                      await prefs.setString(_prefEmailKey, newEmail);
-                                      setState(() => _savedEmail = newEmail);
-                                    }
-                                    if (newPass.isNotEmpty) {
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF047857),
+                                minimumSize: const Size(double.infinity, 44),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: () async {
+                                final newEmail = _settingsEmailCtrl.text.trim();
+                                final newPass = _settingsPassCtrl.text.trim();
+                                final newPin = _settingsPinCtrl.text.trim();
+                                final prefs = await SharedPreferences.getInstance();
+                                if (newPin.isNotEmpty && newPin.length == 4) {
+                                  await prefs.setString(_prefPinKey, newPin);
+                                  setState(() => _savedPin = newPin);
+                                }
+                                if (newEmail.isNotEmpty) {
+                                  await prefs.setString(_prefEmailKey, newEmail);
+                                  setState(() => _savedEmail = newEmail);
+                                }
+                                if (newPass.isNotEmpty) {
                                   await prefs.setString(_prefPassKey, newPass);
                                   setState(() => _savedPassword = newPass);
                                 }
                                 
-                                // INSTANTLY SYNC NEW PIN TO FIREBASE
-                                _commitToLocalDrive();
-
+                                _commitToLocalDrive(); // INSTANTLY SYNC TO FIREBASE
+                                
                                 Navigator.pop(ctx);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Credentials Updated & Synced!')),
                                 );
                               },
                               child: const Text('Save Credentials'),
-                                ),
+                            ),
                               ],
                             ),
                           ),
