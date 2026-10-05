@@ -1068,9 +1068,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   String? _editingTruckId;
   String? _editingInvoiceId;
   String? _editingPaymentId;
-  bool get isMobile => MediaQuery.of(context).size.width < 600; // Android Phones
-bool get isTablet => MediaQuery.of(context).size.width >= 600 && MediaQuery.of(context).size.width < 1100; // iPads
-bool get isDesktop => MediaQuery.of(context).size.width >= 1100; // Windows PCs
+  bool get isMobile => MediaQuery.of(context).size.width < 850;
+  bool get isTablet => MediaQuery.of(context).size.width >= 850 && MediaQuery.of(context).size.width < 1200;
+
   // Undo / Redo History Stacks (Storing JSON snapshots)
   final List<String> _undoStack = [];
   final List<String> _redoStack = [];
@@ -2745,9 +2745,9 @@ Timer? _saveDebounceTimer;
       'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
       'coconutTypes': _coconutTypes,
       'paymentModes': _paymentModes,
-      'savedPin': _savedPin,       // <-- ADDED
-      'savedEmail': _savedEmail,   // <-- ADDED
-      'isLicensed': _isLicensed,   // <-- ADDED
+      'savedPin': _savedPin,
+      'savedEmail': _savedEmail,
+      'isLicensed': _isLicensed,
       'lastSaved': nowUtcIso,
     }, SetOptions(merge: true));
 
@@ -8758,14 +8758,14 @@ _commitToLocalDrive();
             ),
           )
         else
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: (isMobile || isTablet)
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: (isMobile || isTablet)
             ? SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
@@ -8774,10 +8774,10 @@ _commitToLocalDrive();
                 ),
               )
             : _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-          ),
-      ],
-    );
-  }
+      ),
+  ],
+);
+}
 
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
   Widget _buildBuyerTableContent(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
@@ -9267,19 +9267,14 @@ _commitToLocalDrive();
             ),
           )
         else
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth < 1120) {
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: (isMobile || isTablet)
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: (isMobile || isTablet)
             ? SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
@@ -9288,15 +9283,10 @@ _commitToLocalDrive();
                 ),
               )
             : _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
-                  );
-                }
-                return _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance);
-              },
-            ),
-          ),
-      ],
-    );
-  }
+      ),
+  ],
+);
+}
 
   Widget _buildSellerTableContent(List<Map<String, dynamic>> rows, double vQty, double vComm, double vBilled, double vPaid, double vBal) {
     return Column(
@@ -11517,7 +11507,7 @@ _commitToLocalDrive();
               width: MediaQuery.of(context).size.width * 0.92,
               height: MediaQuery.of(context).size.height * 0.70,
               child: DefaultTabController(
-                length: 6, // Length is set to 6
+                length: 6, // FIX: This matches the 6 tabs below to prevent the crash
                 child: Column(
                   children: [
                     const TabBar(
