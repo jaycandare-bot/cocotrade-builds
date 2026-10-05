@@ -12821,10 +12821,14 @@ class NeoScaffold extends StatelessWidget {
 
   // ---------------- DESKTOP FLOATING TOPBAR ----------------
   Widget _buildDesktopTopBar() {
+return LayoutBuilder(
+  builder: (context, constraints) {
+    final bool isCompact = constraints.maxWidth < 950;
+    
     return Container(
       height: 64,
       margin: const EdgeInsets.fromLTRB(28, 18, 28, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 18),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.85),
         borderRadius: BorderRadius.circular(16),
@@ -12851,22 +12855,24 @@ class NeoScaffold extends StatelessWidget {
                   letterSpacing: 0.5,
                 ),
               ),
-              const SizedBox(width: 14),
-              Container(
-                height: 16,
-                width: 1.2,
-                color: const Color(0xFFCBD5E1),
-              ),
-              const SizedBox(width: 14),
-              const Text(
-            'LIVE COMMERCE & AUDIT SUITE v2.1', // <-- Added v2.1 here
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: Color(0xFF64748B),
-            ),
-          ),
+              if (!isCompact) ...[
+                const SizedBox(width: 14),
+                Container(
+                  height: 16,
+                  width: 1.2,
+                  color: const Color(0xFFCBD5E1),
+                ),
+                const SizedBox(width: 14),
+                const Text(
+                  'LIVE COMMERCE & AUDIT SUITE v2.2',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
             ],
           ),
           Row(
@@ -12881,57 +12887,84 @@ class NeoScaffold extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    _buildPillItem("Andhra Pradesh"),
-                    _buildPillItem("Tamil Nadu"),
+                    _buildPillItem("Andhra Pradesh", isCompact: isCompact),
+                    _buildPillItem("Tamil Nadu", isCompact: isCompact),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: isCompact ? 8 : 12),
               // Live Sync Health Badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: syncHealthStatus == 'CONNECTED'
-                      ? const Color(0xFFECFDF5)
-                      : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
+              if (!isCompact)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
                     color: syncHealthStatus == 'CONNECTED'
-                        ? const Color(0xFFA7F3D0)
-                        : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
+                        ? const Color(0xFFECFDF5)
+                        : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: syncHealthStatus == 'CONNECTED'
+                          ? const Color(0xFFA7F3D0)
+                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: syncHealthStatus == 'CONNECTED'
+                              ? const Color(0xFF047857)
+                              : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        syncHealthLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: syncHealthStatus == 'CONNECTED'
+                              ? const Color(0xFF047857)
+                              : (syncHealthStatus == 'QUEUED' ? const Color(0xFFB45309) : const Color(0xFFDC2626)),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                // Compact Sync Badge (Just the dot)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: syncHealthStatus == 'CONNECTED'
+                        ? const Color(0xFFECFDF5)
+                        : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: syncHealthStatus == 'CONNECTED'
+                          ? const Color(0xFFA7F3D0)
+                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
+                    ),
+                  ),
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: syncHealthStatus == 'CONNECTED'
+                          ? const Color(0xFF047857)
+                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                    ),
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: syncHealthStatus == 'CONNECTED'
-                            ? const Color(0xFF047857)
-                            : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      syncHealthLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: syncHealthStatus == 'CONNECTED'
-                            ? const Color(0xFF047857)
-                            : (syncHealthStatus == 'QUEUED' ? const Color(0xFFB45309) : const Color(0xFFDC2626)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
+              SizedBox(width: isCompact ? 8 : 10),
               // FY Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 12, vertical: 7),
                 decoration: BoxDecoration(
                   color: const Color(0xFFECFDF5),
                   borderRadius: BorderRadius.circular(10),
@@ -12940,20 +12973,21 @@ class NeoScaffold extends StatelessWidget {
                 child: Row(
                   children: [
                     const Icon(Icons.date_range_rounded, size: 13, color: Color(0xFF047857)),
-                    const SizedBox(width: 6),
-                    Text(
-                      'FY $financialYear',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF047857),
+                    if (!isCompact) const SizedBox(width: 6),
+                    if (!isCompact)
+                      Text(
+                        'FY $financialYear',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF047857),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
               
-              const SizedBox(width: 10),
+              SizedBox(width: isCompact ? 6 : 10),
               IconButton.filledTonal(
                 style: IconButton.styleFrom(
                   backgroundColor: const Color(0xFFF1F5F9),
@@ -12976,30 +13010,35 @@ class NeoScaffold extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Widget _buildPillItem(String title) {
-    final bool active = activeState == title;
-    return GestureDetector(
-      onTap: () => onStateChanged(title),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFF047857) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.bold,
-            color: active ? Colors.white : const Color(0xFF64748B),
-          ),
-        ),
+  },
+);
+}
+  Widget _buildPillItem(String title, {bool isCompact = false}) {
+final bool active = activeState == title;
+final String displayTitle = isCompact 
+    ? (title == "Andhra Pradesh" ? "AP" : (title == "Tamil Nadu" ? "TN" : title)) 
+    : title;
+    
+return GestureDetector(
+  onTap: () => onStateChanged(title),
+  child: AnimatedContainer(
+    duration: const Duration(milliseconds: 140),
+    padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 12, vertical: 6),
+    decoration: BoxDecoration(
+      color: active ? const Color(0xFF047857) : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      displayTitle,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.bold,
+        color: active ? Colors.white : const Color(0xFF64748B),
       ),
-    );
-  }
+    ),
+  ),
+);
+}
 
   // ---------------- DESKTOP EXPANDABLE GLASS SIDEBAR ----------------
   Widget _buildDesktopSidebar() {
