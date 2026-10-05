@@ -2865,6 +2865,19 @@ void _updateNextInvoiceNumber() {
       if (data['confirmations'] != null) _confirmations = (data['confirmations'] as List).map((i) => TradeConfirmation.fromJson(i)).toList();
       if (data['coconutTypes'] != null) _coconutTypes = List<String>.from(data['coconutTypes']);
       if (data['paymentModes'] != null) _paymentModes = List<String>.from(data['paymentModes']);
+      // ADD THESE LINES TO SYNC YOUR CUSTOM PIN & LOGIN FROM CLOUD
+            if (data.containsKey('savedPin')) {
+              _savedPin = data['savedPin'];
+              SharedPreferences.getInstance().then((p) => p.setString(_prefPinKey, _savedPin));
+            }
+            if (data.containsKey('savedEmail')) {
+              _savedEmail = data['savedEmail'];
+              SharedPreferences.getInstance().then((p) => p.setString(_prefEmailKey, _savedEmail));
+            }
+            if (data.containsKey('isLicensed')) {
+              _isLicensed = data['isLicensed'];
+              SharedPreferences.getInstance().then((p) => p.setBool(_prefIsLicensedKey, _isLicensed));
+            }
       if (data.containsKey('savedPin')) _savedPin = data['savedPin'];
       if (data.containsKey('isLicensed')) _isLicensed = data['isLicensed'];
       if (data.containsKey('savedEmail')) _savedEmail = data['savedEmail'];
@@ -12818,14 +12831,14 @@ class NeoScaffold extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               const Text(
-                'LIVE COMMERCE & AUDIT SUITE',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
-                  color: Color(0xFF64748B),
-                ),
-              ),
+            'LIVE COMMERCE & AUDIT SUITE v2.1', // <-- Added v2.1 here
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              color: Color(0xFF64748B),
+            ),
+          ),
             ],
           ),
           Row(
