@@ -986,7 +986,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     BankAccount(id: '2', name: "ICICI BANK", account: "0280005500946", ifsc: "ICIC0000280", branch: "KAKINADA"),
   ];
   List<SmsQueueItem> _smsQueue = [];
-  late BankAccount _selectedBank;
+  BankAccount _selectedBank = BankAccount(id: '1', name: "STATE BANK OF INDIA", account: "30554488991", ifsc: "SBIN0000054", branch: "MAIN BRANCH");
 
   final _confDateCtrl = TextEditingController();
   final _confRateCtrl = TextEditingController();
@@ -1068,7 +1068,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   String? _editingTruckId;
   String? _editingInvoiceId;
   String? _editingPaymentId;
-  bool get isMobile => MediaQuery.of(context).size.width < 960;
+  bool get isMobile => MediaQuery.of(context).size.width < 600; // Android Phones
+bool get isTablet => MediaQuery.of(context).size.width >= 600 && MediaQuery.of(context).size.width < 1100; // iPads
+bool get isDesktop => MediaQuery.of(context).size.width >= 1100; // Windows PCs
   // Undo / Redo History Stacks (Storing JSON snapshots)
   final List<String> _undoStack = [];
   final List<String> _redoStack = [];
@@ -2736,15 +2738,18 @@ Timer? _saveDebounceTimer;
 
         final metaRef = db.collection('app_metadata').doc('master_config');
         batch.set(metaRef, {
-          'companyProfile': _myCompany.toJson(),
-          'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
-          'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
-          'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
-          'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
-          'coconutTypes': _coconutTypes,
-          'paymentModes': _paymentModes,
-          'lastSaved': nowUtcIso,
-        }, SetOptions(merge: true));
+      'companyProfile': _myCompany.toJson(),
+      'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
+      'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
+      'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
+      'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
+      'coconutTypes': _coconutTypes,
+      'paymentModes': _paymentModes,
+      'savedPin': _savedPin,       // <-- ADDED
+      'savedEmail': _savedEmail,   // <-- ADDED
+      'isLicensed': _isLicensed,   // <-- ADDED
+      'lastSaved': nowUtcIso,
+    }, SetOptions(merge: true));
 
         for (var truck in _trucks) {
           final t = truck as TruckEntry;
@@ -6725,9 +6730,32 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
       ),
     );
 
-    return isMobile ? Column(children: [formBox, const SizedBox(height: 16), previewBox]) : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(flex: 6, child: formBox), const SizedBox(width: 16), Expanded(flex: 5, child: previewBox)]);
-  }
-
+    return LayoutBuilder(
+  builder: (context, constraints) {
+    if (constraints.maxWidth < 1100) {
+      // iPad and Android (Stacked vertically)
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          formBox,
+          const SizedBox(height: 16),
+          previewBox,
+        ],
+      );
+    } else {
+      // Windows (Side-by-side)
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 6, child: formBox),
+          const SizedBox(width: 16),
+          Expanded(flex: 5, child: previewBox),
+        ],
+      );
+    }
+  },
+);
+}
   void _saveInvoice() {
     final bName = _iBuyer.trim().toUpperCase();
     final sName = _iSeller.trim().toUpperCase();
@@ -8741,7 +8769,7 @@ _commitToLocalDrive();
                 ? SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: SizedBox(
-                      width: 1060,
+                      width: 1250,
                       child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
                     ),
                   )
@@ -8767,7 +8795,7 @@ _commitToLocalDrive();
           child: const Row(
             children: [
               SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              Expanded(flex: 3, child: Text('SELLER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              SizedBox(width: 220, child: Text('SELLER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 95, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 280, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
@@ -8799,14 +8827,14 @@ _commitToLocalDrive();
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      row['seller'].toString().toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  SizedBox(
+                width: 220,
+                child: Text(
+                  row['seller'].toString().toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                  overflow: TextOverflow.visible,
+                ),
+              ),
                   SizedBox(width: 95, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
                   SizedBox(width: 105, child: Text(row['bill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
                   // Dedicated 280px width showing direct payments and advances
@@ -8872,7 +8900,7 @@ _commitToLocalDrive();
           child: Row(
             children: [
               const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              const Expanded(flex: 3, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const SizedBox(width: 220, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
               SizedBox(width: 95, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 105, child: Text(money(vBills), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 280, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
@@ -9252,7 +9280,7 @@ _commitToLocalDrive();
                   return SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: SizedBox(
-                      width: 1120,
+                      width: 1250,
                       child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
                     ),
                   );
@@ -9281,7 +9309,7 @@ _commitToLocalDrive();
             children: [
               SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 120, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              Expanded(flex: 3, child: Text('BUYER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              SizedBox(width: 220, child: Text('BUYER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 90, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 100, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
@@ -9326,14 +9354,14 @@ _commitToLocalDrive();
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      row['buyer'].toString().toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  SizedBox(
+                width: 220,
+                child: Text(
+                  row['buyer'].toString().toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                  overflow: TextOverflow.visible,
+                ),
+              ),
                   SizedBox(width: 90, child: Text(row['qty'], style: const TextStyle(fontSize: 11.5))),
                   SizedBox(width: 90, child: Text(row['commission'], style: const TextStyle(fontSize: 11.5))),
                   SizedBox(width: 100, child: Text(row['sellerBill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
@@ -9414,7 +9442,7 @@ _commitToLocalDrive();
             children: [
               const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               const SizedBox(width: 130, child: Text('—', style: TextStyle(color: Color(0xFF047857)))),
-              const Expanded(flex: 3, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const SizedBox(width: 220, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
               SizedBox(width: 90, child: Text(numFmt(vQty), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 90, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 100, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
@@ -11484,7 +11512,7 @@ _commitToLocalDrive();
               width: MediaQuery.of(context).size.width * 0.92,
               height: MediaQuery.of(context).size.height * 0.70,
               child: DefaultTabController(
-                length: 5, // Length is set to 6
+                length: 6, // Length is set to 6
                 child: Column(
                   children: [
                     const TabBar(
