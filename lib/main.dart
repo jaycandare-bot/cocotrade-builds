@@ -32,6 +32,12 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    
+    // ADD THIS BLOCK: Force permanent offline caching so it NEVER re-downloads old data
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED, // Keeps cache forever
+    );
   } catch (e) {
     debugPrint("Firebase init note: $e");
   }
@@ -364,7 +370,7 @@ class PaymentSplitItem {
 }
 
 class _MainLayoutScreenState extends State<MainLayoutScreen> {
-
+  
   static const String _prefFirstLoginKey = 'auth_first_login_completed_v2';
   static const String _prefEmailKey = 'auth_user_email';
   static const String _prefPassKey = 'auth_user_password';
@@ -375,7 +381,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   StreamSubscription<QuerySnapshot>? _paymentsSub;
   StreamSubscription<DocumentSnapshot>? _metadataSub;
   String _syncHealthStatus = 'CONNECTED'; // 'CONNECTED', 'QUEUED', 'ERROR'
-  String _syncHealthLabel = 'Live Synced';
+  String _syncHealthLabel = 'Live Synced';  
   Widget _buildSyncHealthBadge() {
     Color dotColor;
     String label;
@@ -986,6 +992,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   final FocusNode _tQtyFocus = FocusNode();
 
   String _selectedTab = 'dashboard';
+  DateTime _lastCloudPush = DateTime.now().toUtc().subtract(const Duration(minutes: 5));
   String _selectedState = "Andhra Pradesh";
   String _reportsSelectedTab = 'buyer'; // 'buyer' or 'seller'
   CompanyProfile _myCompany = CompanyProfile();
@@ -2751,71 +2758,70 @@ Timer? _saveDebounceTimer;
       final nowUtcIso = DateTime.now().toUtc().toIso8601String();
       final appState = _exportStateMap();
 
-      // Only write to Windows hard drive when NOT on web
+      // 1. Save locally to Windows hard drive (Zero cost, backs up everything)
       if (!kIsWeb) {
         await LocalDriveManager.writeToDrive(appState);
       }
       
+      // 2. Cloud Sync (Optimized to ONLY send changed documents)
       if (Firebase.apps.isNotEmpty) {
         try {
           final db = FirebaseFirestore.instance;
-          
-          // Chunking: Process uploads in safe groups of 450 to bypass Firebase limits
-          List<Future<void>> commitTasks = [];
-          WriteBatch currentBatch = db.batch();
+          WriteBatch batch = db.batch();
           int operationCount = 0;
+          
+          final DateTime syncThreshold = _lastCloudPush;
+          final DateTime thisPushTime = DateTime.now().toUtc();
 
-          void commitAndResetIfNeeded() {
+          Future<void> checkBatch() async {
+            operationCount++;
             if (operationCount >= 450) {
-              commitTasks.add(currentBatch.commit());
-              currentBatch = db.batch();
+              await batch.commit();
+              batch = db.batch();
               operationCount = 0;
             }
           }
 
-          // 1. App Metadata
+          // Always sync the master config so devices know an update happened
           final metaRef = db.collection('app_metadata').doc('master_config');
-          currentBatch.set(metaRef, {
+          batch.set(metaRef, {
             'companyProfile': _myCompany.toJson(),
             'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
             'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
-            'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
-            'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
             'coconutTypes': _coconutTypes,
             'paymentModes': _paymentModes,
-            'savedPin': _savedPin,
-            'savedEmail': _savedEmail,
-            'isLicensed': _isLicensed,
             'lastSaved': nowUtcIso,
           }, SetOptions(merge: true));
-          operationCount++;
-          commitAndResetIfNeeded();
+          await checkBatch();
 
-          // 2. Trucks
+          // ONLY upload Trucks that were created or edited AFTER the last sync
           for (var truck in _trucks) {
             final t = truck as TruckEntry;
-            t.updatedAt = nowUtcIso;
-            currentBatch.set(db.collection('trucks').doc(t.id), t.toJson(), SetOptions(merge: true));
-            operationCount++;
-            commitAndResetIfNeeded();
+            final tTime = DateTime.tryParse(t.updatedAt) ?? DateTime(2000);
+            
+            if (t.id.isNotEmpty && (tTime.isAfter(syncThreshold) || tTime.isAtSameMomentAs(syncThreshold))) {
+              batch.set(db.collection('trucks').doc(t.id), t.toJson(), SetOptions(merge: true));
+              await checkBatch();
+            }
           }
 
-          // 3. Payments
+          // ONLY upload Payments that were created or edited AFTER the last sync
           for (var payment in _payments) {
             final p = payment as PaymentEntry;
-            p.updatedAt = nowUtcIso;
-            currentBatch.set(db.collection('payments').doc(p.id), p.toJson(), SetOptions(merge: true));
-            operationCount++;
-            commitAndResetIfNeeded();
+            final pTime = DateTime.tryParse(p.updatedAt) ?? DateTime(2000);
+            
+            if (p.id.isNotEmpty && (pTime.isAfter(syncThreshold) || pTime.isAtSameMomentAs(syncThreshold))) {
+              batch.set(db.collection('payments').doc(p.id), p.toJson(), SetOptions(merge: true));
+              await checkBatch();
+            }
           }
 
-          // Commit any remaining operations in the final chunk
           if (operationCount > 0) {
-            commitTasks.add(currentBatch.commit());
+            await batch.commit();
           }
 
-          // Execute all chunks simultaneously
-          await Future.wait(commitTasks);
+          // Lock in the new threshold time so we don't upload these again
+          _lastCloudPush = thisPushTime; 
 
           if (mounted) {
             await _recordSyncTimestamp();
@@ -2828,9 +2834,16 @@ Timer? _saveDebounceTimer;
           debugPrint("Firestore sync error: $e");
           if (mounted) {
             setState(() {
-              _syncHealthStatus = 'QUEUED';
-              _syncHealthLabel = 'Offline Queued';
+              _syncHealthStatus = 'ERROR';
+              _syncHealthLabel = 'Sync Failed';
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.red,
+                content: Text('Cloud Sync Error: ${e.toString().split(']').last}'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
           }
         }
       }
@@ -8776,7 +8789,7 @@ _commitToLocalDrive();
           }),
         ],
         // Statement Data Table
-        // Statement Data Table
+       // Statement Data Table
         if (_repBuyer.trim().isEmpty)
           Container(
             width: double.infinity,
@@ -8798,27 +8811,259 @@ _commitToLocalDrive();
             ),
           )
         else
-      Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: (isMobile || isTablet)
-            ? SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: 1250,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // If Desktop Windows: Serve the standard table
+              if (constraints.maxWidth >= 1100) {
+                return Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
                   child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-                ),
-              )
-            : _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-      ),
-  ],
-);
-}
+                );
+              } 
+              // If iPad/Android: Serve the new touch-friendly mobile cards
+              else {
+                return _buildMobileBuyerCards(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance);
+              }
+            },
+          ),
+      ],
+    );
+  }
+Widget _buildMobileBuyerCards(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
+    if (rows.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        alignment: Alignment.center,
+        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+      );
+    }
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...rows.map((row) {
+          final t = row['truck'];
+          final double bal = (row['rawBalance'] as num).toDouble();
+          final pList = row['payments'] as List<dynamic>;
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16), // Proper touch padding
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 4))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header: Seller Name & Date
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row['seller'].toString().toUpperCase(),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(6)),
+                      child: Text(row['date'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Financials Grid
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('QUANTITY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text('${row['qty']} Nuts', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('BILL AMOUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text(row['bill'], style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                const SizedBox(height: 12),
+
+                // Paid Details & Balance
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('PAID DETAILS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                          const SizedBox(height: 4),
+                          _buildSingleLinePaidDetailsCell(
+                            pList,
+                            advanceAdjusted: (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0,
+                            advanceAuditTrails: row['advanceAuditTrails'] as List<String>?,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('BALANCE DUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text(
+                          money(bal),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                            color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // Massive iPad/Android Buttons
+                Row(
+                  children: [
+                    if (bal > 0) ...[
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF047857),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => _markCustomBillAsPaid(t, bal, isBuyerSide: true),
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: const Text('Pay Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      flex: 1,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        ),
+                        onPressed: () => _editFromReport(t),
+                        child: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF0F172A)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                        ),
+                        onPressed: () async {
+                          if (await _confirmDelete(context, "Bill of ${row['bill']}")) {
+                            setState(() {
+                              _saveStateToHistory();
+                              _trucks.remove(t);
+                              _calculateOverdueBills(_trucks);
+                            });
+                            _deleteDocumentFromFirestore('trucks', t.id);
+                            _commitToLocalDrive();
+                          }
+                        },
+                        child: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }),
+
+        // -----------------------------------------------------
+        // MOBILE SUMMARY FOOTER (Sticky-style dark card)
+        // -----------------------------------------------------
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF064E3B), // Deep Forest Green
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [BoxShadow(color: Color(0x33047857), blurRadius: 16, offset: Offset(0, 6))],
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL QTY', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text('${numFmt(vQty)} NUTS', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Divider(color: Color(0xFF047857), height: 1),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL BILLED', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(money(vBills), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL PAID', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(money(vPaid), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(color: const Color(0xFF022C22), borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('NET BALANCE', style: TextStyle(color: Color(0xFF34D399), fontSize: 13, fontWeight: FontWeight.w900)),
+                    Text(money(vBal), style: const TextStyle(color: Color(0xFF34D399), fontSize: 18, fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
   Widget _buildBuyerTableContent(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
     return Column(
@@ -9283,8 +9528,7 @@ _commitToLocalDrive();
           const SizedBox(height: 4),
         ],
 
-       // 4. Main Statement Table Container
-        if (_repSeller.trim().isEmpty)
+       if (_repSeller.trim().isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(40),
@@ -9305,26 +9549,261 @@ _commitToLocalDrive();
             ),
           )
         else
-      Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: (isMobile || isTablet)
-            ? SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: 1300,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 1100) {
+                return Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
                   child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
+                );
+              } else {
+                return _buildMobileSellerCards(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance);
+              }
+            },
+          ),
+      ],
+    );
+  }
+  Widget _buildMobileSellerCards(List<Map<String, dynamic>> rows, double vQty, double vComm, double vBilled, double vPaid, double vBal) {
+    if (rows.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        alignment: Alignment.center,
+        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...rows.map((row) {
+          final t = row['truck'];
+          final double bal = (row['rawBalance'] as num).toDouble();
+          final pList = row['payments'] as List<dynamic>;
+          
+          final sourceSeller = row['sourceSeller'].toString();
+          final bool hasSource = sourceSeller != '—' && sourceSeller != '-' && sourceSeller != 'SELF / DIRECT';
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 4))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            row['buyer'].toString().toUpperCase(),
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                          ),
+                          if (hasSource) ...[
+                            const SizedBox(height: 2),
+                            Text('Bought from: $sourceSeller', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                          ]
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(6)),
+                      child: Text(row['date'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                    ),
+                  ],
                 ),
-              )
-            : _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
-      ),
-  ],
-);
-}
+                const SizedBox(height: 12),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('QUANTITY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text('${row['qty']} Nuts', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('COMMISSION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text(row['commission'], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                const SizedBox(height: 12),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('BILL AMOUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text(row['sellerBill'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('BALANCE DUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        Text(money(bal), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626))),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFFFFBEB), borderRadius: BorderRadius.circular(8)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('PAID DETAILS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFB45309))),
+                      const SizedBox(height: 4),
+                      _buildSingleLinePaidDetailsCell(pList),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Multi-Action Row
+                Row(
+                  children: [
+                    if (bal > 0) ...[
+                      Expanded(
+                        flex: 3,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF047857),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => _markCustomBillAsPaid(t, bal, isBuyerSide: false),
+                          child: const Text('Pay Seller', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          side: const BorderSide(color: Color(0xFF0284C7)),
+                        ),
+                        onPressed: () => _openOrGenerateInvoiceForTruck(t),
+                        child: const Icon(Icons.receipt_long_rounded, size: 18, color: Color(0xFF0284C7)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        ),
+                        onPressed: () => _editFromReport(t),
+                        child: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF0F172A)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }),
+
+        // -----------------------------------------------------
+        // MOBILE SUMMARY FOOTER (Sticky-style dark card)
+        // -----------------------------------------------------
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF064E3B),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [BoxShadow(color: Color(0x33047857), blurRadius: 16, offset: Offset(0, 6))],
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL QTY', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text('${numFmt(vQty)} NUTS', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('COMMISSION', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(money(vComm), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Divider(color: Color(0xFF047857), height: 1),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL BILLED', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(money(vBilled), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('TOTAL PAID', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text(money(vPaid), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(color: const Color(0xFF022C22), borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('NET BALANCE', style: TextStyle(color: Color(0xFF34D399), fontSize: 13, fontWeight: FontWeight.w900)),
+                    Text(money(vBal), style: const TextStyle(color: Color(0xFF34D399), fontSize: 18, fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildSellerTableContent(List<Map<String, dynamic>> rows, double vQty, double vComm, double vBilled, double vPaid, double vBal) {
     return Column(
@@ -11824,7 +12303,7 @@ void _showStorageSettingsDialog() {
           onEditingComplete: () => FocusScope.of(context).nextFocus(),
           maxLines: maxLines,
           scrollPadding: const EdgeInsets.only(bottom: 80),
-          keyboardType: isNum ? TextInputType.number : TextInputType.text,
+          keyboardType: isNum ? TextInputType.number : ((maxLines ?? 1) > 1 ? TextInputType.multiline : TextInputType.text),
           inputFormatters: isNum ? [] : [UpperCaseTextFormatter()],
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
           decoration: InputDecoration(
