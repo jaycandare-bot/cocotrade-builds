@@ -8579,8 +8579,7 @@ _commitToLocalDrive();
     }
     final onBehalfItems = hasSpecificBuyer ? _getBuyerPaidOnBehalfItems(_repBuyer) : <Map<String, dynamic>>[];
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,      
       children: [
 
         // Filter Controls Card
@@ -8810,7 +8809,8 @@ _commitToLocalDrive();
       )
     else
       // Direct return for ALL devices (Windows, iPad, Android)
-      Container(
+      Expanded( // <--- ADD THIS WRAPPER
+        child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -8819,7 +8819,7 @@ _commitToLocalDrive();
         ),
         child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
       ),
-  ],
+    )],
 );
 }
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
@@ -9073,8 +9073,7 @@ _commitToLocalDrive();
     final double combinedCommission = visibleSellerComm + calculatedQtyComm + tnCommissionTotal;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,      
       children: [
         // 1. TN Commission Banner (if applicable)
         if (_repSeller.trim().isNotEmpty && tnCommissionTotal > 0) ...[
@@ -9299,7 +9298,8 @@ _commitToLocalDrive();
       )
     else
       // Direct return for ALL devices
-      Container(
+      Expanded( 
+        child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -9308,7 +9308,7 @@ _commitToLocalDrive();
         ),
         child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
       ),
-  ],
+    )],
 );
 }
   
