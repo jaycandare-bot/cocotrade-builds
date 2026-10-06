@@ -8808,19 +8808,25 @@ _commitToLocalDrive();
             ),
           )
         else
-          // Direct Container without Expanded to prevent unbounded height crash
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: SizedBox(
+            width: 980, // Total width of all 7 columns
             child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
           ),
-      ],
-    );
-  }
+        ),
+      ),
+  ],
+);
+}
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
   Widget _buildBuyerTableContent(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
     return Column(
@@ -9307,14 +9313,18 @@ _commitToLocalDrive();
             ),
           )
         else
-          // Direct Container without Expanded or Flexible
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: SizedBox(
+            width: 1020, // Total width of all 8 seller columns
             child: _buildSellerTableContent(
               displayedSellerRows,
               visibleSellerQty,
@@ -9324,9 +9334,11 @@ _commitToLocalDrive();
               visibleSellerBalance,
             ),
           ),
-      ],
-    );
-  }
+        ),
+      ),
+  ],
+);
+}
   
   Widget _buildSellerTableContent(
     List<Map<String, dynamic>> rows,
@@ -12543,10 +12555,10 @@ class NeoScaffold extends StatelessWidget {
                   child: Column(
                     children: [
                       _buildMobileTopBar(context),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                     Expanded(
+  child: SingleChildScrollView(
+    physics: const ClampingScrollPhysics(), // Stops bounce & limits scroll strictly to content bounds
+    padding: const EdgeInsets.all(16),
                           child: body,
                         ),
                       ),
@@ -12562,7 +12574,7 @@ class NeoScaffold extends StatelessWidget {
                           _buildDesktopTopBar(),
                           Expanded(
                             child: SingleChildScrollView(
-                              physics: const BouncingScrollPhysics(),
+                              physics: const ClampingScrollPhysics(),
                               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
                               child: body,
                             ),
