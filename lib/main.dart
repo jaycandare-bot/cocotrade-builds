@@ -9192,101 +9192,133 @@ _commitToLocalDrive();
         ),
         const SizedBox(height: 12),
 
-        // 3. Seller Advances Banners (Dynamically Shows Net Remaining Advance)
-        if (_repSeller.trim().isNotEmpty && sellerAdvanceEntries.isNotEmpty) ...[
-          ...sellerAdvanceEntries.map((adv) {
+        // 3. Seller Advances Banners (FIFO Allocation across advances)
+    if (_repSeller.trim().isNotEmpty && sellerAdvanceEntries.isNotEmpty) ...[
+      Builder(
+        builder: (context) {
+          // Chronologically sort advances by date
+          final sortedSellerAdvances = List<PaymentEntry>.from(sellerAdvanceEntries)
+            ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
+
+          // Calculate total payments adjusted against this seller's advance pool
+          double unallocatedAdjustedPool = sellerPayments.where((p) {
+            if (sortedSellerAdvances.any((a) => a.id == p.id)) return false;
+            final bool sameSeller = p.seller.trim().toUpperCase() == _repSeller.trim().toUpperCase();
+            if (!sameSeller) return false;
+
+            final bool isAllocated = p.truckId.trim().isNotEmpty ||
+                (p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER");
+            if (!isAllocated) return false;
+
+            final pMode = p.mode.trim().toUpperCase();
+            final bool isAdvAdj = pMode.contains("ADVANCE") ||
+                pMode.contains("ADJUST") ||
+                sortedSellerAdvances.any((a) => a.mode.trim().toUpperCase() == pMode);
+
+            return isAdvAdj;
+          }).fold<double>(0.0, (s, p) => s + p.amount + p.settlement);
+
+          final List<Map<String, dynamic>> computedAdvCards = [];
+          for (var adv in sortedSellerAdvances) {
             final double origAmt = adv.amount + adv.settlement;
+            double adjForThis = 0.0;
 
-            // Calculate payments that were adjusted/allocated from this advance
-            final double adjustedAmt = sellerPayments.where((p) {
-              if (p.id == adv.id) return false;
-              final bool sameSeller = p.seller.trim().toUpperCase() == adv.seller.trim().toUpperCase();
-              if (!sameSeller) return false;
+            if (unallocatedAdjustedPool > 0) {
+              if (unallocatedAdjustedPool >= origAmt) {
+                adjForThis = origAmt;
+                unallocatedAdjustedPool -= origAmt;
+              } else {
+                adjForThis = unallocatedAdjustedPool;
+                unallocatedAdjustedPool = 0.0;
+              }
+            }
 
-              final bool isAllocated = p.truckId.trim().isNotEmpty ||
-                  (p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER");
-              if (!isAllocated) return false;
+            final double remainingAdv = (origAmt - adjForThis).clamp(0.0, double.infinity);
+            if (remainingAdv > 0.05) {
+              computedAdvCards.add({
+                'entry': adv,
+                'origAmt': origAmt,
+                'adjustedAmt': adjForThis,
+                'remainingAdv': remainingAdv,
+              });
+            }
+          }
 
-              final pMode = p.mode.trim().toUpperCase();
-              final advMode = adv.mode.trim().toUpperCase();
+          return Column(
+            children: computedAdvCards.map((data) {
+              final adv = data['entry'] as PaymentEntry;
+              final double origAmt = data['origAmt'] as double;
+              final double adjustedAmt = data['adjustedAmt'] as double;
+              final double remainingAdv = data['remainingAdv'] as double;
 
-              final bool isAdvAdj = pMode == advMode ||
-                  pMode.contains("ADVANCE") ||
-                  pMode.contains("ADJUST");
-
-              return isAdvAdj;
-            }).fold<double>(0.0, (s, p) => s + p.amount + p.settlement);
-
-            final double remainingAdv = (origAmt - adjustedAmt).clamp(0.0, double.infinity);
-
-            // If the advance has been 100% adjusted, hide the banner
-            if (remainingAdv <= 0.05) return const SizedBox.shrink();
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFBFDBFE)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.outbox_rounded, color: Color(0xFF1D4ED8), size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: RichText(
-                      text: TextSpan(
-                        style: TextStyle(fontSize: isMobile ? 11.5 : 13, color: const Color(0xFF1E40AF)),
-                        children: [
-                          const TextSpan(text: 'SELLER ADVANCE REMAINING: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                          TextSpan(text: money(remainingAdv), style: const TextStyle(fontWeight: FontWeight.w900)),
-                          TextSpan(
-                            text: ' (${adv.mode.isNotEmpty ? adv.mode : 'BANK'} on ${formatDisplayDate(adv.date)})',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          if (adjustedAmt > 0)
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.outbox_rounded, color: Color(0xFF1D4ED8), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: TextStyle(fontSize: isMobile ? 11.5 : 13, color: const Color(0xFF1E40AF)),
+                          children: [
+                            const TextSpan(text: 'SELLER ADVANCE REMAINING: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                            TextSpan(text: money(remainingAdv), style: const TextStyle(fontWeight: FontWeight.w900)),
                             TextSpan(
-                              text: ' • [Original: ${money(origAmt)} | Adjusted: ${money(adjustedAmt)}]',
-                              style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 11),
+                              text: ' (${adv.mode.isNotEmpty ? adv.mode : 'BANK'} on ${formatDisplayDate(adv.date)})',
+                              style: const TextStyle(fontWeight: FontWeight.w700),
                             ),
-                          TextSpan(
-                            text: ' — [Pending Buyer Assignment]',
-                            style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 11, fontStyle: FontStyle.italic),
-                          ),
-                        ],
+                            if (adjustedAmt > 0)
+                              TextSpan(
+                                text: ' • [Original: ${money(origAmt)} | Adjusted: ${money(adjustedAmt)}]',
+                                style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 11),
+                              ),
+                            TextSpan(
+                              text: ' — [Pending Buyer Assignment]',
+                              style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 11, fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Edit Advance Record',
-                    icon: const Icon(Icons.edit, size: 16, color: Color(0xFF1D4ED8)),
-                    onPressed: () => _editPaymentEntryDialog(adv),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                    onPressed: () async {
-                      if (await _confirmDelete(context, "Seller Advance of ${money(origAmt)}")) {
-                        setState(() {
-                          _saveStateToHistory();
-                          _payments.removeWhere((item) => item.id == adv.id);
-                          _calculateOverdueBills(_trucks);
-                        });
-                        _commitToLocalDrive();
-                      }
-                    },
-                  ),
-                ],
-              ),
-            );
-          }),
-          const SizedBox(height: 4),
-        ],
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: 'Edit Advance Record',
+                      icon: const Icon(Icons.edit, size: 16, color: Color(0xFF1D4ED8)),
+                      onPressed: () => _editPaymentEntryDialog(adv),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                      onPressed: () async {
+                        if (await _confirmDelete(context, "Seller Advance of ${money(origAmt)}")) {
+                          setState(() {
+                            _saveStateToHistory();
+                            _payments.removeWhere((item) => item.id == adv.id);
+                            _calculateOverdueBills(_trucks);
+                          });
+                          _commitToLocalDrive();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          );
+        },
+      ),
+      const SizedBox(height: 4),
+    ],
 
        if (_repSeller.trim().isEmpty)
           Container(
@@ -9578,7 +9610,7 @@ _commitToLocalDrive();
                                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                                   children: [
                                     pw.Text(
-                                      '${_myCompany.name} — CONSOLIDATED COMMISSION REPORT',
+                                      '${_myCompany.name} | CONSOLIDATED COMMISSION REPORT',
                                       style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
                                     ),
                                     pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
@@ -10935,7 +10967,7 @@ _commitToLocalDrive();
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Text(
-                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} — SELLER: ${seller.toUpperCase()}',
+                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | SELLER: ${seller.toUpperCase()}',
                     style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
                   ),
                   pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
@@ -11305,7 +11337,7 @@ _commitToLocalDrive();
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Text(
-                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} — BUYER: ${buyer.toUpperCase()}',
+                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | BUYER: ${buyer.toUpperCase()}',
                     style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
                   ),
                   pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
