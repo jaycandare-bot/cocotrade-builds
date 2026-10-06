@@ -700,9 +700,16 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                   setState(() {
                     _saveStateToHistory();
 
+                    // FIX 1: Dynamically find the exact payment type string your app uses
+                    String sellerPayType = 'PAYMENT OUT';
+                    String buyerPayType = 'PAYMENT IN';
+                    try { sellerPayType = _payments.firstWhere((p) => p.seller.isNotEmpty && p.buyer.isEmpty).type; } catch (_) {}
+                    try { buyerPayType = _payments.firstWhere((p) => p.buyer.isNotEmpty && p.seller.isEmpty).type; } catch (_) {}
+
                     for (var item in candidateAllocations) {
                       double alloc = double.tryParse(item['ctrl'].text) ?? 0.0;
                       if (alloc > 0) {
+                        // Original Entry
                         _payments.add(PaymentEntry(
                           id: '${nowMs}_bulk_${entriesCreated++}',
                           state: _selectedState,
@@ -716,6 +723,23 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                           date: pDate,
                           truckId: item['truck'].id,
                         ));
+
+                        // FIX 2: Dual-Entry Mirror for DIRECT Payments
+                        if (mode == 'DIRECT') {
+                          _payments.add(PaymentEntry(
+                            id: '${nowMs}_bulk_${entriesCreated++}_mirror',
+                            state: _selectedState,
+                            type: isSeller ? buyerPayType : sellerPayType, 
+                            seller: isSeller ? '' : item['truck'].supplier,
+                            buyer: isSeller ? item['truck'].buyer : '',
+                            amount: alloc,
+                            transportReceived: 0,
+                            settlement: 0,
+                            mode: mode, // Must remain exactly 'DIRECT' to pass filters
+                            date: pDate,
+                            truckId: item['truck'].id,
+                          ));
+                        }
                       }
                     }
 
@@ -744,8 +768,8 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(backgroundColor: const Color(0xFF047857), content: Text('Created $entriesCreated truck payments (${money(depositTotal)} allocated)!')),
                   );
-                },
-                child: const Text('Confirm & Save Bulk Allocation'),
+                },                
+                child: const Text('Confirm & Save Bulk Allocation'), 
               ),
             ],
           );
@@ -3247,40 +3271,27 @@ void _updateNextInvoiceNumber() {
   }
 
   Widget _buildActiveTabContent() {
-    Widget content;
-    switch (_selectedTab) {
-      case 'dashboard':
-        content = _buildDashboardView();
-        break;
-      case 'parties':
-        content = _buildPartiesView();
-        break;
-      case 'trucks':
-        content = _buildTruckLogisticsView();
-        break;
-      case 'invoice':
-        content = _buildInvoiceView();
-        break;
-      case 'payments':
-        content = _buildPaymentsView();
-        break;
-      case 'reports':
-        content = _buildReportsView();
-        break;
-      case 'transport':
-        content = _buildTransportView();
-        break;
-      case 'estimate':
-        content = _buildEstimateView();
-        break;
-      default:
-        content = _buildDashboardView();
-    }
-    return Material(
-      color: Colors.transparent,
-      child: content,
-    );
-  }
+final List<String> tabKeys = ['dashboard', 'parties', 'trucks', 'invoice', 'payments', 'reports', 'transport', 'estimate'];
+int currentIndex = tabKeys.indexOf(_selectedTab);
+if (currentIndex == -1) currentIndex = 0;
+
+return Material(
+  color: Colors.transparent,
+  child: IndexedStack(
+    index: currentIndex,
+    children: [
+      _buildDashboardView(),
+      _buildPartiesView(),
+      _buildTruckLogisticsView(),
+      _buildInvoiceView(),
+      _buildPaymentsView(),
+      _buildReportsView(),
+      _buildTransportView(),
+      _buildEstimateView(),
+    ],
+  ),
+);
+}
 
  @override
   Widget build(BuildContext context) {
@@ -3317,11 +3328,11 @@ void _updateNextInvoiceNumber() {
           child: NeoScaffold(
             activeTab: _selectedTab,
             onTabChanged: (tab) => setState(() {
-              _selectedTab = tab;
-              if (tab == 'trucks' && _editingTruckId == null) _clearTruckForm();
-              if (tab == 'invoice' && _editingInvoiceId == null) _clearInvoiceForm();
-              _calculateOverdueBills(_trucks);
-            }),
+          _selectedTab = tab;
+          if (tab == 'trucks' && _editingTruckId == null) _clearTruckForm();
+          if (tab == 'invoice' && _editingInvoiceId == null) _clearInvoiceForm();
+          // Removed _calculateOverdueBills so the UI doesn't freeze!
+        }),
             onLock: () => setState(() => _isLocked = true),
             onSettings: _showStorageSettingsDialog,
             activeState: _selectedState,
@@ -3475,16 +3486,16 @@ void _updateNextInvoiceNumber() {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: () {
-            setState(() {
-              _selectedTab = key;
-              if (key == 'trucks' && _editingTruckId == null) _clearTruckForm();
-              if (key == 'invoice' && _editingInvoiceId == null) _clearInvoiceForm();
-              _calculateOverdueBills(_trucks);
-            });
-            if (isMobile && Navigator.canPop(context)) {
-              Navigator.pop(context);
-            }
-          },
+        setState(() {
+          _selectedTab = key;
+          if (key == 'trucks' && _editingTruckId == null) _clearTruckForm();
+          if (key == 'invoice' && _editingInvoiceId == null) _clearInvoiceForm();
+          // Removed _calculateOverdueBills so the UI doesn't freeze!
+        });
+        if (isMobile && Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+      },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             padding: EdgeInsets.symmetric(
@@ -11759,39 +11770,46 @@ void _showStorageSettingsDialog() {
       ),
     );
   }
- Widget _customField(String label, TextEditingController ctrl, {String hint = '', bool isNum = false, bool readOnly = false, IconData? icon, VoidCallback? onTap, ValueChanged<String>? onChanged, ValueChanged<String>? onSubmitted, int? maxLines = 1}) {
+ Widget _customField(
+    String label, 
+    TextEditingController ctrl, {
+    bool isNum = false, 
+    String? hint, 
+    IconData? icon, 
+    int? maxLines, 
+    bool readOnly = false, 
+    VoidCallback? onTap, 
+    void Function(String)? onChanged,
+    void Function(String)? onSubmitted, // <-- Added this back to fix the 5800s errors
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
       children: [
-        if (label.isNotEmpty) ...[
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-          const SizedBox(height: 5),
-        ],
-        SizedBox(
-          height: (maxLines ?? 1) > 1 ? null : 40,
-          child: TextField(
-        controller: ctrl, 
-        readOnly: readOnly, 
-        onTap: onTap, 
-        onChanged: onChanged, 
-        onSubmitted: onSubmitted ?? (_) => FocusScope.of(context).nextFocus(), // <-- Moves focus on Enter
-        textInputAction: (maxLines ?? 1) > 1 ? TextInputAction.newline : TextInputAction.next, // <-- Moves focus on Tab
-        onEditingComplete: () => FocusScope.of(context).nextFocus(), // <-- Moves focus reliably on iPad
-        maxLines: maxLines,
-        scrollPadding: const EdgeInsets.only(bottom: 80),
-        keyboardType: isNum ? TextInputType.number : TextInputType.text,
-        inputFormatters: isNum ? [] : [UpperCaseTextFormatter()],
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-        decoration: InputDecoration(
-          hintText: hint, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          suffixIcon: icon != null ? Icon(icon, size: 18, color: const Color(0xFF64748B)) : null,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
-          filled: true, fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
-        ),
-      ),
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+        const SizedBox(height: 5),
+        TextField(
+          controller: ctrl,
+          readOnly: readOnly,
+          onTap: onTap,
+          onChanged: onChanged,
+          onSubmitted: onSubmitted ?? (_) => FocusScope.of(context).nextFocus(),
+          textInputAction: (maxLines ?? 1) > 1 ? TextInputAction.newline : TextInputAction.next,
+          onEditingComplete: () => FocusScope.of(context).nextFocus(),
+          maxLines: maxLines,
+          scrollPadding: const EdgeInsets.only(bottom: 80),
+          keyboardType: isNum ? TextInputType.number : TextInputType.text,
+          inputFormatters: isNum ? [] : [UpperCaseTextFormatter()],
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          decoration: InputDecoration(
+            hintText: hint,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            suffixIcon: icon != null ? Icon(icon, size: 18, color: const Color(0xFF64748B)) : null,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
+            filled: true,
+            fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
+          ),
         ),
       ],
     );
