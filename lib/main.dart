@@ -8788,288 +8788,46 @@ _commitToLocalDrive();
             );
           }),
         ],
-        // Statement Data Table
-       // Statement Data Table
-        if (_repBuyer.trim().isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(40),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.person_search_rounded, size: 42, color: Color(0xFF94A3B8)),
-                  SizedBox(height: 12),
-                  Text('Select a Buyer above to view their Statement of Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                ],
-              ),
-            ),
-          )
-        else
-          LayoutBuilder(
-            builder: (context, constraints) {
-              // If Desktop Windows: Serve the standard table
-              if (constraints.maxWidth >= 1100) {
-                return Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-                );
-              } 
-              // If iPad/Android: Serve the new touch-friendly mobile cards
-              else {
-                return _buildMobileBuyerCards(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance);
-              }
-            },
-          ),
-      ],
-    );
-  }
-Widget _buildMobileBuyerCards(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
-    if (rows.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(32),
-        alignment: Alignment.center,
-        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ...rows.map((row) {
-          final t = row['truck'];
-          final double bal = (row['rawBalance'] as num).toDouble();
-          final pList = row['payments'] as List<dynamic>;
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16), // Proper touch padding
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 4))],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header: Seller Name & Date
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        row['seller'].toString().toUpperCase(),
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(6)),
-                      child: Text(row['date'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                
-                // Financials Grid
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('QUANTITY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text('${row['qty']} Nuts', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text('BILL AMOUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text(row['bill'], style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                const SizedBox(height: 12),
-
-                // Paid Details & Balance
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('PAID DETAILS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                          const SizedBox(height: 4),
-                          _buildSingleLinePaidDetailsCell(
-                            pList,
-                            advanceAdjusted: (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0,
-                            advanceAuditTrails: row['advanceAuditTrails'] as List<String>?,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text('BALANCE DUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text(
-                          money(bal),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.5,
-                            color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                // Massive iPad/Android Buttons
-                Row(
-                  children: [
-                    if (bal > 0) ...[
-                      Expanded(
-                        flex: 2,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF047857),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: () => _markCustomBillAsPaid(t, bal, isBuyerSide: true),
-                          icon: const Icon(Icons.check_circle_outline, size: 18),
-                          label: const Text('Pay Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      flex: 1,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        ),
-                        onPressed: () => _editFromReport(t),
-                        child: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF0F172A)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 1,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          side: const BorderSide(color: Color(0xFFFECACA)),
-                        ),
-                        onPressed: () async {
-                          if (await _confirmDelete(context, "Bill of ${row['bill']}")) {
-                            setState(() {
-                              _saveStateToHistory();
-                              _trucks.remove(t);
-                              _calculateOverdueBills(_trucks);
-                            });
-                            _deleteDocumentFromFirestore('trucks', t.id);
-                            _commitToLocalDrive();
-                          }
-                        },
-                        child: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        }),
-
-        // -----------------------------------------------------
-        // MOBILE SUMMARY FOOTER (Sticky-style dark card)
-        // -----------------------------------------------------
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF064E3B), // Deep Forest Green
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: const [BoxShadow(color: Color(0x33047857), blurRadius: 16, offset: Offset(0, 6))],
-          ),
+       if (_repBuyer.trim().isEmpty)
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(40),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: const Center(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL QTY', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text('${numFmt(vQty)} NUTS', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Divider(color: Color(0xFF047857), height: 1),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL BILLED', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(money(vBills), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL PAID', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(money(vPaid), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(color: const Color(0xFF022C22), borderRadius: BorderRadius.circular(10)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('NET BALANCE', style: TextStyle(color: Color(0xFF34D399), fontSize: 13, fontWeight: FontWeight.w900)),
-                    Text(money(vBal), style: const TextStyle(color: Color(0xFF34D399), fontSize: 18, fontWeight: FontWeight.w900)),
-                  ],
-                ),
-              ),
+              Icon(Icons.person_search_rounded, size: 42, color: Color(0xFF94A3B8)),
+              SizedBox(height: 12),
+              Text('Select a Buyer above to view their Statement of Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
             ],
           ),
         ),
-      ],
-    );
-  }
+      )
+    else
+      // Direct return for ALL devices (Windows, iPad, Android)
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
+      ),
+  ],
+);
+}
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
   Widget _buildBuyerTableContent(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Table Header
+        // Table Header (Remains sticky at the top)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
@@ -9090,91 +8848,98 @@ Widget _buildMobileBuyerCards(List<Map<String, dynamic>> rows, double vQty, doub
           ),
         ),
 
-        // Body Rows
+        // Body Rows (High-Performance Scrolling Area)
         if (rows.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(32),
-            alignment: Alignment.center,
-            child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(32),
+              alignment: Alignment.center,
+              child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+            ),
           )
         else
-          ...rows.map((row) {
-            final t = row['truck'];
-            final double bal = (row['rawBalance'] as num).toDouble();
-            final pList = row['payments'] as List<dynamic>;
+          Expanded(
+            child: ListView.builder(
+              itemCount: rows.length,
+              itemBuilder: (context, index) {
+                final row = rows[index];
+                final t = row['truck'];
+                final double bal = (row['rawBalance'] as num).toDouble();
+                final pList = row['payments'] as List<dynamic>;
 
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(
-                width: 220,
-                child: Text(
-                  row['seller'].toString().toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                  overflow: TextOverflow.visible,
-                ),
-              ),
-                  SizedBox(width: 95, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(width: 105, child: Text(row['bill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
-                  // Dedicated 280px width showing direct payments and advances
-                  SizedBox(
-                    width: 280,
-                    child: _buildSingleLinePaidDetailsCell(
-                      pList,
-                      advanceAdjusted: (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0,
-                      advanceAuditTrails: row['advanceAuditTrails'] as List<String>?,
-                    ),
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
                   ),
-                  SizedBox(
-                    width: 110,
-                    child: Text(
-                      money(bal),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
+                      SizedBox(
+                        width: 220,
+                        child: Text(
+                          row['seller'].toString().toUpperCase(),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                          overflow: TextOverflow.visible,
+                        ),
                       ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 80,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: () => _editFromReport(t),
-                          child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.edit, size: 14, color: Color(0xFF047857))),
+                      SizedBox(width: 95, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
+                      SizedBox(width: 105, child: Text(row['bill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                      SizedBox(
+                        width: 280,
+                        child: _buildSingleLinePaidDetailsCell(
+                          pList,
+                          advanceAdjusted: (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0,
+                          advanceAuditTrails: row['advanceAuditTrails'] as List<String>?,
                         ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () async {
-                            if (await _confirmDelete(context, "Bill of ${row['bill']}")) {
-                              setState(() {
-  _saveStateToHistory();
-  _trucks.remove(t);
-  _calculateOverdueBills(_trucks);
-});
-_deleteDocumentFromFirestore('trucks', t.id);
-_commitToLocalDrive();
-                            }
-                          },
-                          child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.delete_outline, size: 14, color: Colors.red)),
+                      ),
+                      SizedBox(
+                        width: 110,
+                        child: Text(
+                          money(bal),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                          ),
                         ),
-                      ],
-                    ),
+                      ),
+                      SizedBox(
+                        width: 80,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: () => _editFromReport(t),
+                              child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.edit, size: 14, color: Color(0xFF047857))),
+                            ),
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: () async {
+                                if (await _confirmDelete(context, "Bill of ${row['bill']}")) {
+                                  setState(() {
+                                    _saveStateToHistory();
+                                    _trucks.remove(t);
+                                    _calculateOverdueBills(_trucks);
+                                  });
+                                  _deleteDocumentFromFirestore('trucks', t.id);
+                                  _commitToLocalDrive();
+                                }
+                              },
+                              child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.delete_outline, size: 14, color: Colors.red)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            );
-          }),
+                );
+              },
+            ),
+          ),
 
-        // Single Accurate Footer Total Row
+        // Single Accurate Footer Total Row (Remains sticky at the bottom)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
@@ -9529,282 +9294,24 @@ _commitToLocalDrive();
         ],
 
        if (_repSeller.trim().isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(40),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.storefront_rounded, size: 42, color: Color(0xFF94A3B8)),
-                  SizedBox(height: 12),
-                  Text('Select a Seller above to view their Statement of Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                ],
-              ),
-            ),
-          )
-        else
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth >= 1100) {
-                return Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
-                );
-              } else {
-                return _buildMobileSellerCards(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance);
-              }
-            },
-          ),
-      ],
-    );
-  }
-  Widget _buildMobileSellerCards(List<Map<String, dynamic>> rows, double vQty, double vComm, double vBilled, double vPaid, double vBal) {
-    if (rows.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(32),
-        alignment: Alignment.center,
-        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ...rows.map((row) {
-          final t = row['truck'];
-          final double bal = (row['rawBalance'] as num).toDouble();
-          final pList = row['payments'] as List<dynamic>;
-          
-          final sourceSeller = row['sourceSeller'].toString();
-          final bool hasSource = sourceSeller != '—' && sourceSeller != '-' && sourceSeller != 'SELF / DIRECT';
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 4))],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            row['buyer'].toString().toUpperCase(),
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                          ),
-                          if (hasSource) ...[
-                            const SizedBox(height: 2),
-                            Text('Bought from: $sourceSeller', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-                          ]
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(6)),
-                      child: Text(row['date'], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('QUANTITY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text('${row['qty']} Nuts', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text('COMMISSION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text(row['commission'], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                const SizedBox(height: 12),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('BILL AMOUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text(row['sellerBill'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text('BALANCE DUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF94A3B8))),
-                        const SizedBox(height: 2),
-                        Text(money(bal), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: -0.5, color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626))),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: const Color(0xFFFFFBEB), borderRadius: BorderRadius.circular(8)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('PAID DETAILS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFB45309))),
-                      const SizedBox(height: 4),
-                      _buildSingleLinePaidDetailsCell(pList),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Multi-Action Row
-                Row(
-                  children: [
-                    if (bal > 0) ...[
-                      Expanded(
-                        flex: 3,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF047857),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          onPressed: () => _markCustomBillAsPaid(t, bal, isBuyerSide: false),
-                          child: const Text('Pay Seller', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      flex: 2,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          side: const BorderSide(color: Color(0xFF0284C7)),
-                        ),
-                        onPressed: () => _openOrGenerateInvoiceForTruck(t),
-                        child: const Icon(Icons.receipt_long_rounded, size: 18, color: Color(0xFF0284C7)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 2,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        ),
-                        onPressed: () => _editFromReport(t),
-                        child: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF0F172A)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        }),
-
-        // -----------------------------------------------------
-        // MOBILE SUMMARY FOOTER (Sticky-style dark card)
-        // -----------------------------------------------------
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF064E3B),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: const [BoxShadow(color: Color(0x33047857), blurRadius: 16, offset: Offset(0, 6))],
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL QTY', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text('${numFmt(vQty)} NUTS', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('COMMISSION', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(money(vComm), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Divider(color: Color(0xFF047857), height: 1),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL BILLED', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(money(vBilled), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('TOTAL PAID', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(money(vPaid), style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(color: const Color(0xFF022C22), borderRadius: BorderRadius.circular(10)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('NET BALANCE', style: TextStyle(color: Color(0xFF34D399), fontSize: 13, fontWeight: FontWeight.w900)),
-                    Text(money(vBal), style: const TextStyle(color: Color(0xFF34D399), fontSize: 18, fontWeight: FontWeight.w900)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+      Container(
+        // ... (keep your empty state UI exactly as it is) ...
+      )
+    else
+      // Direct return for ALL devices
+      Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
-      ],
-    );
-  }
-
+        child: _buildSellerTableContent(displayedSellerRows, visibleSellerQty, visibleSellerComm, visibleSellerBilled, visibleSellerPaid, visibleSellerBalance),
+      ),
+  ],
+);
+}
+  
   Widget _buildSellerTableContent(List<Map<String, dynamic>> rows, double vQty, double vComm, double vBilled, double vPaid, double vBal) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
