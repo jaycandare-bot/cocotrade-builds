@@ -2755,59 +2755,86 @@ Timer? _saveDebounceTimer;
       if (!kIsWeb) {
         await LocalDriveManager.writeToDrive(appState);
       }
+      
       if (Firebase.apps.isNotEmpty) {
-      // Sync to Cloud Firestore for both Windows and Web/iPad
-      try {
-        final db = FirebaseFirestore.instance;
-        final batch = db.batch();
+        try {
+          final db = FirebaseFirestore.instance;
+          
+          // Chunking: Process uploads in safe groups of 450 to bypass Firebase limits
+          List<Future<void>> commitTasks = [];
+          WriteBatch currentBatch = db.batch();
+          int operationCount = 0;
 
-        final metaRef = db.collection('app_metadata').doc('master_config');
-        batch.set(metaRef, {
-      'companyProfile': _myCompany.toJson(),
-      'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
-      'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
-      'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
-      'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
-      'coconutTypes': _coconutTypes,
-      'paymentModes': _paymentModes,
-      'savedPin': _savedPin,
-      'savedEmail': _savedEmail,
-      'isLicensed': _isLicensed,
-      'lastSaved': nowUtcIso,
-    }, SetOptions(merge: true));
+          void commitAndResetIfNeeded() {
+            if (operationCount >= 450) {
+              commitTasks.add(currentBatch.commit());
+              currentBatch = db.batch();
+              operationCount = 0;
+            }
+          }
 
-        for (var truck in _trucks) {
-          final t = truck as TruckEntry;
-          t.updatedAt = nowUtcIso;
-          final docRef = db.collection('trucks').doc(t.id);
-          batch.set(docRef, t.toJson(), SetOptions(merge: true));
-        }
+          // 1. App Metadata
+          final metaRef = db.collection('app_metadata').doc('master_config');
+          currentBatch.set(metaRef, {
+            'companyProfile': _myCompany.toJson(),
+            'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
+            'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
+            'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
+            'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
+            'coconutTypes': _coconutTypes,
+            'paymentModes': _paymentModes,
+            'savedPin': _savedPin,
+            'savedEmail': _savedEmail,
+            'isLicensed': _isLicensed,
+            'lastSaved': nowUtcIso,
+          }, SetOptions(merge: true));
+          operationCount++;
+          commitAndResetIfNeeded();
 
-        for (var payment in _payments) {
-          final p = payment as PaymentEntry;
-          p.updatedAt = nowUtcIso;
-          final docRef = db.collection('payments').doc(p.id);
-          batch.set(docRef, p.toJson(), SetOptions(merge: true));
-        }
+          // 2. Trucks
+          for (var truck in _trucks) {
+            final t = truck as TruckEntry;
+            t.updatedAt = nowUtcIso;
+            currentBatch.set(db.collection('trucks').doc(t.id), t.toJson(), SetOptions(merge: true));
+            operationCount++;
+            commitAndResetIfNeeded();
+          }
 
-        await batch.commit();
-        if (mounted) {
-          await _recordSyncTimestamp();
-          setState(() {
-            _syncHealthStatus = 'CONNECTED';
-            _syncHealthLabel = 'Live Synced';
-          });
-        }
-      } catch (e) {
-        debugPrint("Firestore sync error: $e");
-        if (mounted) {
-          setState(() {
-            _syncHealthStatus = 'QUEUED';
-            _syncHealthLabel = 'Offline Queued';
-          });
+          // 3. Payments
+          for (var payment in _payments) {
+            final p = payment as PaymentEntry;
+            p.updatedAt = nowUtcIso;
+            currentBatch.set(db.collection('payments').doc(p.id), p.toJson(), SetOptions(merge: true));
+            operationCount++;
+            commitAndResetIfNeeded();
+          }
+
+          // Commit any remaining operations in the final chunk
+          if (operationCount > 0) {
+            commitTasks.add(currentBatch.commit());
+          }
+
+          // Execute all chunks simultaneously
+          await Future.wait(commitTasks);
+
+          if (mounted) {
+            await _recordSyncTimestamp();
+            setState(() {
+              _syncHealthStatus = 'CONNECTED';
+              _syncHealthLabel = 'Live Synced';
+            });
+          }
+        } catch (e) {
+          debugPrint("Firestore sync error: $e");
+          if (mounted) {
+            setState(() {
+              _syncHealthStatus = 'QUEUED';
+              _syncHealthLabel = 'Offline Queued';
+            });
+          }
         }
       }
-  }});
+    });
   }
 
 void _markCustomBillAsPaid(dynamic truckEntry, double settleAmount, {bool isBuyerSide = false, bool isBothSides = false}) {
