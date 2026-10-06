@@ -3311,27 +3311,26 @@ void _updateNextInvoiceNumber() {
   }
 
   Widget _buildActiveTabContent() {
-final List<String> tabKeys = ['dashboard', 'parties', 'trucks', 'invoice', 'payments', 'reports', 'transport', 'estimate'];
-int currentIndex = tabKeys.indexOf(_selectedTab);
-if (currentIndex == -1) currentIndex = 0;
-
-return Material(
-  color: Colors.transparent,
-  child: IndexedStack(
-    index: currentIndex,
-    children: [
-      _buildDashboardView(),
-      _buildPartiesView(),
-      _buildTruckLogisticsView(),
-      _buildInvoiceView(),
-      _buildPaymentsView(),
-      _buildReportsView(),
-      _buildTransportView(),
-      _buildEstimateView(),
-    ],
-  ),
-);
-}
+    switch (_selectedTab) {
+      case 'parties':
+        return _buildPartiesView();
+      case 'trucks':
+        return _buildTruckLogisticsView();
+      case 'invoice':
+        return _buildInvoiceView();
+      case 'payments':
+        return _buildPaymentsView();
+      case 'reports':
+        return _buildReportsView();
+      case 'transport':
+        return _buildTransportView();
+      case 'estimate':
+        return _buildEstimateView();
+      case 'dashboard':
+      default:
+        return _buildDashboardView();
+    }
+  }
 
  @override
   Widget build(BuildContext context) {
@@ -8819,7 +8818,7 @@ _commitToLocalDrive();
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: SizedBox(
-            width: 980, // Total width of all 7 columns
+            width: 1010, // Total width of all 7 columns
             child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
           ),
         ),
@@ -9070,7 +9069,7 @@ _commitToLocalDrive();
     final double combinedCommission = visibleSellerComm + calculatedQtyComm + tnCommissionTotal;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,      
+      crossAxisAlignment: CrossAxisAlignment.stretch,      
       children: [
         // 1. TN Commission Banner (if applicable)
         if (_repSeller.trim().isNotEmpty && tnCommissionTotal > 0) ...[
@@ -9324,7 +9323,7 @@ _commitToLocalDrive();
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: SizedBox(
-            width: 1020, // Total width of all 8 seller columns
+            width: 1050, // Total width of all 8 seller columns
             child: _buildSellerTableContent(
               displayedSellerRows,
               visibleSellerQty,
@@ -11999,7 +11998,7 @@ void _showStorageSettingsDialog() {
               padding: EdgeInsets.only(bottom: bottomInset),
               duration: const Duration(milliseconds: 100),
               child: SizedBox(
-                height: MediaQuery.of(context).size.height * 0.70,
+                height: MediaQuery.of(context).size.height * 0.5,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -12557,6 +12556,7 @@ class NeoScaffold extends StatelessWidget {
                       _buildMobileTopBar(context),
                      Expanded(
   child: SingleChildScrollView(
+    key: ValueKey(activeTab),    
     physics: const ClampingScrollPhysics(), // Stops bounce & limits scroll strictly to content bounds
     padding: const EdgeInsets.all(16),
                           child: body,
@@ -12574,6 +12574,7 @@ class NeoScaffold extends StatelessWidget {
                           _buildDesktopTopBar(),
                           Expanded(
                             child: SingleChildScrollView(
+                              key: ValueKey(activeTab),
                               physics: const ClampingScrollPhysics(),
                               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
                               child: body,
