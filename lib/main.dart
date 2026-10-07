@@ -700,7 +700,13 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
                 onPressed: () {
                   final nowMs = DateTime.now().millisecondsSinceEpoch;
-                  final pDate = dateCtrl.text.trim();
+                 final pDate = dateCtrl.text.trim();
+if (pDate.isEmpty) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(backgroundColor: Colors.red, content: Text('Error: Payment Date is mandatory!')),
+  );
+  return;
+}
                   int entriesCreated = 0;
 
                   setState(() {
@@ -7538,27 +7544,27 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: _customAutocomplete(
-                    'Seller / Supplier', _sellerNames, _paySeller, 'SELECT SELLER',
-                    (val) => setState(() {
-                      _paySeller = val;
-                      if (!_filteredPaymentBuyers.contains(_payBuyer)) {
-                        _payBuyer = "";
-                      }
-                    }),
-                    onAddPressed: () => _showAddPartyDialog(initialType: 'SELLER', onCreated: (name) => setState(() => _paySeller = name)),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _customAutocomplete(
-                    'Buyer', _filteredPaymentBuyers, _payBuyer, 'SELECT BUYER',
-                    (val) => setState(() => _payBuyer = val),
-                    onAddPressed: () => _showAddPartyDialog(initialType: 'BUYER', onCreated: (name) => setState(() => _payBuyer = name)),
-                  ),
-                ),
+  child: _customAutocomplete(
+    'Seller / Supplier',
+    _sellerNames, // Full list of sellers
+    _paySeller,
+    'SELECT SELLER',
+    (val) => setState(() => _paySeller = val),
+    onAddPressed: () => _showAddPartyDialog(initialType: 'SELLER', onCreated: (name) => setState(() => _paySeller = name)),
+  ),
+),
+const SizedBox(width: 12),
+Expanded(
+  child: _customAutocomplete(
+    'Buyer',
+    _buyerNames, // Full list of buyers without restrictions
+    _payBuyer,
+    'SELECT BUYER',
+    (val) => setState(() => _payBuyer = val),
+    onAddPressed: () => _showAddPartyDialog(initialType: 'BUYER', onCreated: (name) => setState(() => _payBuyer = name)),
+  ),
+),
               ]),
 
               const SizedBox(height: 16),
@@ -7857,7 +7863,6 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
 
               const SizedBox(height: 22),
 
-              // Action Buttons
              // Action Buttons
               Row(
                 children: [
@@ -7871,18 +7876,30 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                       final sName = _paySeller.trim().toUpperCase();
                       final bName = _payBuyer.trim().toUpperCase();
 
-                     final bool hasSeller = sName.isNotEmpty && sName != 'SELECT SELLER';
-final bool hasBuyer = bName.isNotEmpty && bName != 'SELECT BUYER';
+                      final bool hasSeller = sName.isNotEmpty && sName != 'SELECT SELLER';
+                      final bool hasBuyer = bName.isNotEmpty && bName != 'SELECT BUYER';
 
-if (!hasSeller && !hasBuyer) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      backgroundColor: Colors.red,
-      content: Text('Error: Please select either Seller or Buyer!'),
-    ),
-  );
-  return;
-}
+                      if (!hasSeller && !hasBuyer) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: Colors.red,
+                            content: Text('Error: Please select either Seller or Buyer!'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      // MANDATORY PAYMENT DATE CHECK
+                      final pDate = _payDateCtrl.text.trim();
+                      if (pDate.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: Colors.red,
+                            content: Text('Error: Payment Date is mandatory! Please enter date.'),
+                          ),
+                        );
+                        return;
+                      }
 
                       final cleanSeller = hasSeller ? sName : "";
                       final cleanBuyer = hasBuyer ? bName : "";
@@ -7913,7 +7930,6 @@ if (!hasSeller && !hasBuyer) {
                       if (splitAmts.isEmpty) splitAmts.add(0.0);
 
                       final nowMs = DateTime.now().millisecondsSinceEpoch;
-                      final pDate = _payDateCtrl.text.trim();
                       final transRec = double.tryParse(_payTransportReceivedCtrl.text) ?? 0;
 
                       setState(() {
@@ -7967,7 +7983,6 @@ if (!hasSeller && !hasBuyer) {
                       );
                     },
                     icon: const Icon(Icons.check_circle_outline, size: 17),
-                    // RENAMED TO: Save Transaction
                     label: Text(_editingPaymentId != null ? 'Update Transaction' : 'Save Transaction', style: const TextStyle(fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 10),
@@ -7978,7 +7993,6 @@ if (!hasSeller && !hasBuyer) {
                       side: const BorderSide(color: Color(0xFFCBD5E1)),
                     ),
                     onPressed: _clearPaymentForm,
-                    // RENAMED TO: Reset
                     child: const Text('Reset', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
                   ),
                 ],
@@ -7987,9 +8001,7 @@ if (!hasSeller && !hasBuyer) {
           ),
         ),
 
-        const SizedBox(height: 18),
-        // Remainder of Transaction History Table remains intact
-
+        const SizedBox(height: 18),     
         // 2. TRANSACTION HISTORY CARD & LEDGER TABLE
         Container(
           padding: EdgeInsets.all(isMobile ? 14 : 20),
@@ -8967,13 +8979,15 @@ _commitToLocalDrive();
 
   // ---------------- SELLER STATEMENT TAB (CRASH-PROOF & RESPONSIVE) ----------------
   Widget _buildSellerReportTab() {
-    final sellerAllStateTrucks = _trucks.where((t) {
-      final matchesSeller = _repSeller.isNotEmpty && t.supplier.toUpperCase() == _repSeller.toUpperCase();
-      final matchesBuyer = _repSellerBuyerFilter.isEmpty || t.buyer.toUpperCase() == _repSellerBuyerFilter.toUpperCase();
-      final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
-      final matchesRange = isDateInRange(t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
-      return matchesSeller && matchesBuyer && matchesFY && matchesRange;
-    }).toList();
+  final bool hasSpecificSeller = _repSeller.trim().isNotEmpty;
+  final bool hasSpecificBuyer = _repSellerBuyerFilter.trim().isNotEmpty;
+  final sellerAllStateTrucks = _trucks.where((t) {
+  final matchesSeller = !hasSpecificSeller || t.supplier.toUpperCase() == _repSeller.toUpperCase();
+  final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == _repSellerBuyerFilter.toUpperCase();
+  final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
+  final matchesRange = isDateInRange(t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
+  return matchesSeller && matchesBuyer && matchesFY && matchesRange;
+}).toList();
 
     double apCommissionTotal = 0.0;
     double tnCommissionTotal = 0.0;
@@ -9320,7 +9334,7 @@ _commitToLocalDrive();
       const SizedBox(height: 4),
     ],
 
-       if (_repSeller.trim().isEmpty)
+       if (_repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(40),
@@ -9335,10 +9349,10 @@ _commitToLocalDrive();
                 children: [
                   Icon(Icons.storefront_rounded, size: 42, color: Color(0xFF94A3B8)),
                   SizedBox(height: 12),
-                  Text(
-                    'Select a Seller above to view their Statement of Account',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
-                  ),
+                  const Text(
+                          'Select a Seller or Buyer above to view their Statement of Account',
+                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                    ),
                 ],
               ),
             ),
@@ -9355,173 +9369,196 @@ _commitToLocalDrive();
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: SizedBox(
-            width: 1050, // Total width of all 8 seller columns
-            child: _buildSellerTableContent(
-              displayedSellerRows,
-              visibleSellerQty,
-              visibleSellerComm,
-              visibleSellerBilled,
-              visibleSellerPaid,
-              visibleSellerBalance,
+           width: 1140, // Expanded to cleanly fit Seller Bought and Pay button
+           child: _buildSellerTableContent(
+            displayedSellerRows,
+            visibleSellerQty,
+            visibleSellerComm,
+            visibleSellerBilled,
+            visibleSellerPaid,
+            visibleSellerBalance,
             ),
           ),
         ),
       ),
-  ],
-);
-}
-  
-  Widget _buildSellerTableContent(
-    List<Map<String, dynamic>> rows,
-    double vQty,
-    double vComm,
-    double vBilled,
-    double vPaid,
-    double vBal,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Table Header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-            border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-          ),
-          child: const Row(
-            children: [
-              SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 200, child: Text('BUYER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 250, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 85, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-            ],
-          ),
-        ),
-
-        // Body Rows
-        if (rows.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(32),
-            alignment: Alignment.center,
-            child: const Text(
-              'No records found for the selected filters.',
-              style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic),
-            ),
-          )
-        else
-          ...rows.map((row) {
-            final t = row['truck'];
-            final double bal = (row['rawBalance'] as num).toDouble();
-            final pList = row['payments'] as List<dynamic>;
-
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(
-                    width: 200,
-                    child: Text(
-                      row['buyer'].toString().toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                      overflow: TextOverflow.visible,
-                    ),
-                  ),
-                  SizedBox(width: 90, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(width: 95, child: Text(row['commission'], style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(width: 105, child: Text(row['sellerBill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
-                  SizedBox(
-                    width: 250,
-                    child: _buildSingleLinePaidDetailsCell(pList),
-                  ),
-                  SizedBox(
-                    width: 105,
-                    child: Text(
-                      money(bal),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 85,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: () => _openOrGenerateInvoiceForTruck(t),
-                          child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.receipt_long_rounded, size: 14, color: Color(0xFF0284C7))),
-                        ),
-                        const SizedBox(width: 3),
-                        InkWell(
-                          onTap: () => _editFromReport(t),
-                          child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.edit, size: 14, color: Color(0xFF047857))),
-                        ),
-                        const SizedBox(width: 3),
-                        InkWell(
-                          onTap: () async {
-                            if (await _confirmDelete(context, "Bill of ${row['sellerBill']}")) {
-                              setState(() {
-                                _saveStateToHistory();
-                                _trucks.remove(t);
-                                _calculateOverdueBills(_trucks);
-                              });
-                              _deleteDocumentFromFirestore('trucks', t.id);
-                              _commitToLocalDrive();
-                            }
-                          },
-                          child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.delete_outline, size: 14, color: Colors.red)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-
-        // Footer Total Row
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: const BoxDecoration(
-            color: Color(0xFFECFDF5),
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-            border: Border(top: BorderSide(color: Color(0xFFD1FAE5))),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              const SizedBox(width: 200, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-              SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(width: 250, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(
-                width: 105,
-                child: Text(
-                  money(vBal),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
-                ),
-              ),
-              const SizedBox(width: 85),
-            ],
-          ),
-        ),
       ],
     );
   }
+  
+  Widget _buildSellerTableContent(
+List<Map<String, dynamic>> rows,
+double vQty,
+double vComm,
+double vBilled,
+double vPaid,
+double vBal,
+) {
+return Column(
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+    // Table Header
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 140, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 180, child: Text('BUYER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 250, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          SizedBox(width: 110, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+        ],
+      ),
+    ),
+
+    // Body Rows
+    if (rows.isEmpty)
+      Container(
+        padding: const EdgeInsets.all(32),
+        alignment: Alignment.center,
+        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+      )
+    else
+      ...rows.map((row) {
+        final t = row['truck'];
+        final double bal = (row['rawBalance'] as num).toDouble();
+        final pList = row['payments'] as List<dynamic>;
+        final String sourceSeller = (row['sourceSeller'] ?? '—').toString().toUpperCase();
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
+              SizedBox(
+                width: 140,
+                child: Text(
+                  sourceSeller,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: sourceSeller != '—' ? FontWeight.bold : FontWeight.normal,
+                    color: sourceSeller != '—' ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                  ),
+                  overflow: TextOverflow.visible,
+                ),
+              ),
+              SizedBox(
+                width: 180,
+                child: Text(
+                  row['buyer'].toString().toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                  overflow: TextOverflow.visible,
+                ),
+              ),
+              SizedBox(width: 90, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
+              SizedBox(width: 95, child: Text(row['commission'], style: const TextStyle(fontSize: 11.5))),
+              SizedBox(width: 105, child: Text(row['sellerBill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+              SizedBox(width: 250, child: _buildSingleLinePaidDetailsCell(pList)),
+              SizedBox(
+                width: 105,
+                child: Text(
+                  money(bal),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 110,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // PAY OPTION: Instantly pay and clear seller dues
+                    if (bal > 0.05) ...[
+                      Tooltip(
+                        message: 'Pay / Clear Bill (${money(bal)})',
+                        child: InkWell(
+                          onTap: () => _markCustomBillAsPaid(t, bal, isBuyerSide: false),
+                          child: const Padding(
+                            padding: EdgeInsets.all(3),
+                            child: Icon(Icons.payments_rounded, size: 16, color: Color(0xFF047857)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                    ],
+                    InkWell(
+                      onTap: () => _openOrGenerateInvoiceForTruck(t),
+                      child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.receipt_long_rounded, size: 14, color: Color(0xFF0284C7))),
+                    ),
+                    const SizedBox(width: 3),
+                    InkWell(
+                      onTap: () => _editFromReport(t),
+                      child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.edit, size: 14, color: Color(0xFF047857))),
+                    ),
+                    const SizedBox(width: 3),
+                    InkWell(
+                      onTap: () async {
+                        if (await _confirmDelete(context, "Bill of ${row['sellerBill']}")) {
+                          setState(() {
+                            _saveStateToHistory();
+                            _trucks.remove(t);
+                            _calculateOverdueBills(_trucks);
+                          });
+                          _deleteDocumentFromFirestore('trucks', t.id);
+                          _commitToLocalDrive();
+                        }
+                      },
+                      child: const Padding(padding: EdgeInsets.all(3), child: Icon(Icons.delete_outline, size: 14, color: Colors.red)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+
+    // Footer Total Row
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFECFDF5),
+        borderRadius: BorderRadius.vertical(top: Radius.zero, bottom: Radius.circular(12)),
+        border: Border(top: BorderSide(color: Color(0xFFD1FAE5))),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+          const SizedBox(width: 140, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+          const SizedBox(width: 180, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+          SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+          SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+          SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+          SizedBox(width: 250, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+          SizedBox(
+            width: 105,
+            child: Text(
+              money(vBal),
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
+            ),
+          ),
+          const SizedBox(width: 110),
+        ],
+      ),
+    ),
+  ],
+);
+}
 
   // ---------------- CONSOLIDATED COMMISSION REPORT (FIXED PDF) ----------------
   void _showAllSellersCommissionDialog() async {
