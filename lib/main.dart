@@ -9393,6 +9393,9 @@ double vBilled,
 double vPaid,
 double vBal,
 ) {
+// When only buyer is chosen, toggle column to display the respective seller
+final bool isBuyerOnlyMode = _repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isNotEmpty;
+
 return Column(
   crossAxisAlignment: CrossAxisAlignment.stretch,
   children: [
@@ -9404,17 +9407,26 @@ return Column(
         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 140, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 180, child: Text('BUYER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 250, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          SizedBox(width: 110, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 140, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          
+          // DYNAMIC HEADER: SELLER vs BUYER
+          SizedBox(
+            width: 180,
+            child: Text(
+              isBuyerOnlyMode ? 'SELLER' : 'BUYER',
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11),
+            ),
+          ),
+
+          const SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 250, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+          const SizedBox(width: 110, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
         ],
       ),
     ),
@@ -9432,6 +9444,9 @@ return Column(
         final double bal = (row['rawBalance'] as num).toDouble();
         final pList = row['payments'] as List<dynamic>;
         final String sourceSeller = (row['sourceSeller'] ?? '—').toString().toUpperCase();
+
+        // DYNAMIC PARTY NAME: Shows supplier when buyer is selected, otherwise shows buyer
+        final String partyDisplayName = (isBuyerOnlyMode ? t.supplier : row['buyer']).toString().toUpperCase();
 
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -9457,7 +9472,7 @@ return Column(
               SizedBox(
                 width: 180,
                 child: Text(
-                  row['buyer'].toString().toUpperCase(),
+                  partyDisplayName,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                   overflow: TextOverflow.visible,
                 ),
@@ -9482,7 +9497,6 @@ return Column(
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // PAY OPTION: Instantly pay and clear seller dues
                     if (bal > 0.05) ...[
                       Tooltip(
                         message: 'Pay / Clear Bill (${money(bal)})',
@@ -10971,12 +10985,14 @@ return Column(
     const titleGreen = PdfColor.fromInt(0xFF126B35);
     const redAccent = PdfColor.fromInt(0xFFBD2020);
 
+    final bool isBuyerOnlyMode = buyerFilter.trim().isNotEmpty &&
+    (seller.trim().isEmpty || seller.trim().toUpperCase() == "ALL SELLERS" || seller.trim().toUpperCase().startsWith("BUYER:"));
+
     final int totalFySellerTrucks = _trucks.where((t) {
       final sName = t.supplier.toString().trim().toUpperCase();
       final targetSeller = seller.toString().trim().toUpperCase();
       return sName == targetSeller && _isDateInFY(t.date, _selectedFinancialYear);
-    }).length;
-
+    }).length;    
     final bool hasSellerBought = rows.any((r) {
       final s = r['sourceSeller']?.toString().trim() ?? '';
       return s.isNotEmpty && s != '—' && s != '-' && s != 'SELF / DIRECT';
@@ -11004,9 +11020,11 @@ return Column(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Text(
-                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | SELLER: ${seller.toUpperCase()}',
-                    style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
-                  ),
+  isBuyerOnlyMode
+      ? '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | BUYER: ${buyerFilter.toUpperCase()}'
+      : '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | SELLER: ${seller.toUpperCase()}',
+  style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
+),
                   pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
                 ],
               ),
@@ -11079,7 +11097,13 @@ return Column(
                 children: [
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('DATE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                   if (hasSellerBought) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('SELLER BOUGHT', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('BUYER', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(
+  padding: const pw.EdgeInsets.all(3.5),
+  child: pw.Text(
+    isBuyerOnlyMode ? 'SELLER' : 'BUYER',
+    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+  ),
+),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('QTY (NUTS)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('COMMISSION', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('SELLER BILL', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
@@ -11110,7 +11134,13 @@ return Column(
                   children: [
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'], style: const pw.TextStyle(fontSize: 8))),
                     if (hasSellerBought) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(sourceBought, style: pw.TextStyle(fontSize: 8, fontWeight: sourceBought != '-' ? pw.FontWeight.bold : pw.FontWeight.normal))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['buyer'], style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(
+  padding: const pw.EdgeInsets.all(3.5),
+  child: pw.Text(
+    (isBuyerOnlyMode ? (row['truck'].supplier ?? '-') : (row['buyer'] ?? '-')).toString().toUpperCase(),
+    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+  ),
+),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${row['qty']} NUTS', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['commission'].replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(row['truck'].supplierBill)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
