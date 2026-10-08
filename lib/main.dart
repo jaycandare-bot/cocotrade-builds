@@ -33,7 +33,7 @@ void main() async {
     debugPrint('Firebase initialization warning (non-fatal): $e');
   }
 
-  runApp(const CocoTradeApp());
+  runApp(const MainLayoutScreen());
 }
 class SmsQueueItem {
   String id;
