@@ -29,15 +29,31 @@ jobs:
       - name: Pre-create iOS Build Directories
         run: mkdir -p build/ios/SourcePackages
 
-      - name: Bypass Development Team Check
+      - name: Configure Manual Signing & Bypass Team Check
         run: |
-          python3 -c "
-          with open('ios/Runner.xcodeproj/project.pbxproj', 'r') as f:
-              data = f.read()
-          data = data.replace('buildSettings = {', 'buildSettings = {\n\t\t\t\tDEVELOPMENT_TEAM = \"DUMMYTEAM1\";')
-          with open('ios/Runner.xcodeproj/project.pbxproj', 'w') as f:
-              f.write(data)
-          "
+          python3 -c '
+          with open("ios/Runner.xcodeproj/project.pbxproj", "r") as f:
+              content = f.read()
+
+          # 1. Switch from Automatic to Manual signing so Xcode never looks for provisioning profiles
+          content = content.replace("CODE_SIGN_STYLE = Automatic;", "CODE_SIGN_STYLE = Manual;")
+
+          # 2. Inject dummy team to pass Flutter check while completely disabling codesign
+          replacement = """buildSettings = {
+          \t\t\t\tCODE_SIGNING_ALLOWED = NO;
+          \t\t\t\tCODE_SIGNING_REQUIRED = NO;
+          \t\t\t\tCODE_SIGN_IDENTITY = "";
+          \t\t\t\tDEVELOPMENT_TEAM = "DUMMYTEAM1";
+          \t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "";"""
+          content = content.replace("buildSettings = {", replacement)
+
+          with open("ios/Runner.xcodeproj/project.pbxproj", "w") as f:
+              f.write(content)
+          '
+          # 3. Enforce no-codesign in Flutter Release configuration
+          echo "CODE_SIGNING_ALLOWED=NO" >> ios/Flutter/Release.xcconfig
+          echo "CODE_SIGNING_REQUIRED=NO" >> ios/Flutter/Release.xcconfig
+          echo "CODE_SIGN_IDENTITY=" >> ios/Flutter/Release.xcconfig
 
       - name: Install Dependencies
         run: flutter pub get
