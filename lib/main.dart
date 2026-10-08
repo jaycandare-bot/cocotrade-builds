@@ -26,29 +26,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Safe Firebase Initialization
+  
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    
-    // ADD THIS BLOCK: Force permanent offline caching so it NEVER re-downloads old data
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED, // Keeps cache forever
-    );
+    await Firebase.initializeApp();
   } catch (e) {
-    debugPrint("Firebase init note: $e");
+    debugPrint('Firebase initialization warning (non-fatal): $e');
   }
 
-  runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CocoTrade ERP',
-      home: MainLayoutScreen(),
-    ),
-  );
+  runApp(const CocoTradeApp());
 }
 class SmsQueueItem {
   String id;

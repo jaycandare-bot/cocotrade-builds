@@ -43,6 +43,8 @@
 					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
 					<key>UISceneStoryboardFile</key>
 					<string>Main</string>
+					<key>NSCameraUsageDescription</key>
+					<string>Camera access is required for scanning QR codes.</string>
 				</dict>
 			</array>
 		</dict>
