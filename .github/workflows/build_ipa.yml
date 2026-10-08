@@ -1,74 +1,46 @@
-name: Shorebird iOS Build & Deploy
+name: Build iOS IPA (Manual Sideloadly)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      action_type:
-        description: 'Choose Action (release = Base IPA for Sideloadly, patch = Live Wi-Fi OTA update)'
-        required: true
-        default: 'release'
-        type: choice
-        options:
-          - release
-          - patch
 
 jobs:
   build-ios:
-    name: Shorebird iOS (${{ github.event.inputs.action_type || 'release' }})
+    name: Build iPad IPA
     runs-on: macos-14
-    env:
-      SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Shorebird
-        uses: shorebirdtech/actions/setup-shorebird@v1
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
 
       - name: Install Dependencies
         run: flutter pub get
 
-      # Determine whether to run release or patch
-      - name: Set Operation Mode
-        id: op
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "mode=${{ github.event.inputs.action_type }}" >> $GITHUB_OUTPUT
-          else
-            # Default for standard git push: 'release' on initial setup
-            echo "mode=release" >> $GITHUB_OUTPUT
-          fi
-
-      # -------------------------------------------------------------
-      # 1. BASE RELEASE (Creates base on Shorebird & exports IPA)
-      # -------------------------------------------------------------
-      - name: Build Shorebird iOS Base Release
-        if: steps.op.outputs.mode == 'release'
-        run: |
-          shorebird release ios --no-codesign
+      - name: Build iOS App (No Codesign)
+        run: flutter build ios --release --no-codesign
 
       - name: Package Payload to IPA
-        if: steps.op.outputs.mode == 'release'
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r CocoTradeERP-iPad.ipa Payload
 
       - name: Upload iPad IPA Artifact
-        if: steps.op.outputs.mode == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: CocoTradeERP-iPad
           path: CocoTradeERP-iPad.ipa
           retention-days: 7
-
-      # -------------------------------------------------------------
-      # 2. LIVE PATCH (Silent Over-The-Air Wi-Fi Update)
-      # -------------------------------------------------------------
-      - name: Publish Shorebird iOS Patch
-        if: steps.op.outputs.mode == 'patch'
-        run: |
-          shorebird patch ios --no-codesign

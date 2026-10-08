@@ -29,8 +29,6 @@ dependencies:
   extension_google_sign_in_as_googleapis_auth: ^2.0.2
   firebase_core: ^4.15.0
   cloud_firestore: ^6.10.0
-  shorebird_code_push: ^2.0.7
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

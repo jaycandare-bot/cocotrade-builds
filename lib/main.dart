@@ -23,7 +23,6 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -431,49 +430,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       ),
     );
   }
-  final _shorebirdUpdater = ShorebirdUpdater();
-
-  Future<void> _checkForOtaUpdates() async {
-    // Shorebird OTA applies to mobile/tablet (Android & iOS/iPadOS)
-    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
-
-    try {
-      final status = await _shorebirdUpdater.checkForUpdate();
-
-      if (status == UpdateStatus.outdated) {
-        // Downloads the patch silently in the background over Wi-Fi/data
-        await _shorebirdUpdater.update();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: const Color(0xFF047857),
-              duration: const Duration(seconds: 8),
-              content: const Row(
-                children: [
-                  Icon(Icons.system_update_rounded, color: Colors.white, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Update downloaded! Restart the app to apply the latest changes.',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-                    ),
-                  ),
-                ],
-              ),
-              action: SnackBarAction(
-                label: 'DISMISS',
-                textColor: Colors.white70,
-                onPressed: () {},
-              ),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Shorebird update check note: $e');
-    }
-  }
+  
   void _showBulkPaymentAllocationDialog() {
     final bool isSeller = _payType.contains("SELLER");
     final sName = _paySeller.trim().toUpperCase();
@@ -2586,8 +2543,7 @@ void _loadPaymentIntoForm(PaymentEntry p) {
   void initState() {
     super.initState();
     _initializeAppData();
-    _listenToCloudFirestore();
-    _checkForOtaUpdates();
+    _listenToCloudFirestore();    
   }
 
  
@@ -13098,7 +13054,7 @@ return LayoutBuilder(
                 ),
                 const SizedBox(width: 14),
                 const Text(
-                  'LIVE COMMERCE & AUDIT SUITE v2.2 • LIVE PATCH TEST 1',
+                  'LIVE COMMERCE & AUDIT SUITE v2.2',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
