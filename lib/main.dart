@@ -13098,7 +13098,7 @@ return LayoutBuilder(
                 ),
                 const SizedBox(width: 14),
                 const Text(
-                  'LIVE COMMERCE & AUDIT SUITE v2.2',
+                  'LIVE COMMERCE & AUDIT SUITE v2.2 • LIVE PATCH TEST 1',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
