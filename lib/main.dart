@@ -23,6 +23,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -429,6 +430,49 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         ],
       ),
     );
+  }
+  final _shorebirdUpdater = ShorebirdUpdater();
+
+  Future<void> _checkForOtaUpdates() async {
+    // Shorebird OTA applies to mobile/tablet (Android & iOS/iPadOS)
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
+
+    try {
+      final status = await _shorebirdUpdater.checkForUpdate();
+
+      if (status == UpdateStatus.outdated) {
+        // Downloads the patch silently in the background over Wi-Fi/data
+        await _shorebirdUpdater.update();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: const Color(0xFF047857),
+              duration: const Duration(seconds: 8),
+              content: const Row(
+                children: [
+                  Icon(Icons.system_update_rounded, color: Colors.white, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Update downloaded! Restart the app to apply the latest changes.',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                    ),
+                  ),
+                ],
+              ),
+              action: SnackBarAction(
+                label: 'DISMISS',
+                textColor: Colors.white70,
+                onPressed: () {},
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Shorebird update check note: $e');
+    }
   }
   void _showBulkPaymentAllocationDialog() {
     final bool isSeller = _payType.contains("SELLER");
@@ -2542,7 +2586,8 @@ void _loadPaymentIntoForm(PaymentEntry p) {
   void initState() {
     super.initState();
     _initializeAppData();
-    _listenToCloudFirestore(); // Starts live Firestore sync
+    _listenToCloudFirestore();
+    _checkForOtaUpdates();
   }
 
  
@@ -8958,7 +9003,7 @@ _commitToLocalDrive();
             );
           }),
 
-        // Footer Total Row
+       // Footer Total Row with TOTAL = [COUNT] below Date
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
@@ -8966,41 +9011,30 @@ _commitToLocalDrive();
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
             border: Border(top: BorderSide(color: Color(0xFFD1FAE5))),
           ),
-          child: Column(
+          child: Row(
             children: [
-              Row(
-                children: [
-                  const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-                  const SizedBox(width: 220, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-                  SizedBox(width: 95, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-                  SizedBox(width: 105, child: Text(money(vBills), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-                  SizedBox(width: 280, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-                  SizedBox(
-                    width: 110,
-                    child: Text(
-                      money(vBal),
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
-                    ),
-                  ),
-                  const SizedBox(width: 80),
-                ],
+              SizedBox(
+                width: 85,
+                child: Text(
+                  'TOTAL = ${rows.length}',
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5),
+                ),
               ),
-          Container(
-  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-  decoration: const BoxDecoration(
-    color: Color(0xFFF8FAFC),
-    borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-    border: Border(
-      left: BorderSide(color: Color(0xFFE2E8F0)),
-      right: BorderSide(color: Color(0xFFE2E8F0)),
-      bottom: BorderSide(color: Color(0xFFE2E8F0)),
-    ),
-  ),
-  child: Text('TOTAL TRUCKS = ${rows.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12)),
-          ),
+              const SizedBox(width: 220, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              SizedBox(width: 95, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(width: 105, child: Text(money(vBills), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(width: 280, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(
+                width: 110,
+                child: Text(
+                  money(vBal),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
+                ),
+              ),
+              const SizedBox(width: 80),
             ],
           ),
-        ),
+        ),             
       ],
     );
   }
@@ -9567,59 +9601,150 @@ return Column(
         );
       }),
 
-    // Footer Total Row
-    Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: const BoxDecoration(
-        color: Color(0xFFECFDF5),
-        borderRadius: BorderRadius.vertical(top: Radius.zero, bottom: Radius.circular(12)),
-        border: Border(top: BorderSide(color: Color(0xFFD1FAE5))),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 85, child: Text('TOTAL', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-          const SizedBox(width: 140, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-          const SizedBox(width: 180, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-          SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-          SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-          SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-          SizedBox(width: 250, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-          SizedBox(
-            width: 105,
-            child: Text(
-              money(vBal),
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
-            ),
+   // Footer Total Row with TOTAL = [COUNT] below Date
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: const BoxDecoration(
+            color: Color(0xFFECFDF5),
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
+            border: Border(top: BorderSide(color: Color(0xFFD1FAE5))),
           ),
-          Container(
-  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-  decoration: const BoxDecoration(
-    color: Color(0xFFF8FAFC),
-    borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-    border: Border(
-      left: BorderSide(color: Color(0xFFE2E8F0)),
-      right: BorderSide(color: Color(0xFFE2E8F0)),
-      bottom: BorderSide(color: Color(0xFFE2E8F0)),
-    ),
-  ),
-  child: Text('TOTAL TRUCKS = ${rows.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12)),
-),
-          const SizedBox(width: 110),
-        ],
-      ),
-    ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 85,
+                child: Text(
+                  'TOTAL = ${rows.length}',
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5),
+                ),
+              ),
+              const SizedBox(width: 140, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const SizedBox(width: 180, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(width: 250, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              SizedBox(
+                width: 105,
+                child: Text(
+                  money(vBal),
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
+                ),
+              ),
+              const SizedBox(width: 110),
+            ],
+          ),
+        ),
   ],
 );
 }
 
   // ---------------- CONSOLIDATED COMMISSION REPORT (FIXED PDF) ----------------
-  void _showAllSellersCommissionDialog() async {
+ Widget _buildCommissionReceivedCell(String sellerName, List<PaymentEntry> commPayments, double totalReceived) {
+    if (totalReceived <= 0 && commPayments.isEmpty) {
+      return const Text('—', style: TextStyle(color: Colors.grey, fontSize: 12));
+    }
+
+    final int count = commPayments.length;
+    final bool isMultiSplit = count > 1;
+
+    String mainText;
+    if (!isMultiSplit && commPayments.isNotEmpty) {
+      final p = commPayments.first;
+      mainText = '${money(totalReceived)} (${p.mode}) on ${formatDisplayDate(p.date)}';
+    } else {
+      mainText = '${money(totalReceived)} ($count Payments)';
+    }
+
+    final List<InlineSpan> noteLines = [
+      TextSpan(
+        text: 'NOTE: Commission Payment Breakdown (Total: ${money(totalReceived)})\n',
+        style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF78350F), fontSize: 11),
+      ),
+      const TextSpan(text: '──────────────────────────────────\n', style: TextStyle(color: Color(0xFFD97706), fontSize: 9)),
+    ];
+
+    for (int i = 0; i < commPayments.length; i++) {
+      final p = commPayments[i];
+      final dt = formatDisplayDate(p.date);
+      final amt = p.amount > 0 ? p.amount : p.commissionAdjusted;
+      noteLines.add(
+        TextSpan(
+          text: '${i + 1}. $dt: ${money(amt)} (${p.mode})\n',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF451A03), fontSize: 11),
+        ),
+      );
+    }
+
+    noteLines.addAll([
+      const TextSpan(text: '──────────────────────────────────\n', style: TextStyle(color: Color(0xFFD97706), fontSize: 9)),
+      TextSpan(
+        text: 'TOTAL CLEARED: ${money(totalReceived)}',
+        style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF92400E), fontSize: 11.5),
+      ),
+    ]);
+
+    return Tooltip(
+      triggerMode: TooltipTriggerMode.tap,
+      waitDuration: const Duration(milliseconds: 50),
+      showDuration: const Duration(seconds: 15),
+      preferBelow: false,
+      verticalOffset: 12,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF9C3),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+        boxShadow: const [
+          BoxShadow(color: Color(0x26000000), blurRadius: 10, offset: Offset(0, 4)),
+        ],
+      ),
+      richMessage: TextSpan(children: noteLines),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: () => _showPaymentBreakdownDialog(
+          commPayments,
+          commPayments.isNotEmpty ? formatDisplayDate(commPayments.last.date) : 'Commission',
+          totalReceived,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isMultiSplit)
+              Container(
+                width: 6,
+                height: 6,
+                margin: const EdgeInsets.only(right: 6),
+                decoration: const BoxDecoration(color: Color(0xFFDC2626), shape: BoxShape.circle),
+              ),
+            Flexible(
+              child: Text(
+                mainText,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                  color: const Color(0xFF047857),
+                  decoration: isMultiSplit ? TextDecoration.underline : TextDecoration.none,
+                  decorationStyle: TextDecorationStyle.dotted,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAllSellersCommissionDialog() {
     final double sCommRate = double.tryParse(_repSellerCommRateCtrl.text) ?? 0;
     final double divisor = _repSellerCommDivisor > 0 ? _repSellerCommDivisor : 1000;
+
     List<Map<String, dynamic>> sellerSummaries = [];
     double grandTotalCommission = 0;
     double grandTotalQty = 0;
     double grandTotalAdjComm = 0;
+    double grandTotalReceived = 0;
 
     for (var seller in _sellerNames) {
       final sellerTrucks = _trucks.where((t) {
@@ -9641,230 +9766,146 @@ return Column(
           .fold<double>(0.0, (s, p) => s + p.commissionAdjusted);
       final double totalComm = directComm + qtyComm;
 
-      if (totalComm > 0 || totalQty > 0 || adjComm > 0) {
-        sellerSummaries.add({'name': seller, 'qty': totalQty, 'adjComm': adjComm, 'totalComm': totalComm});
-        // Retrieve all commission receipts/adjustments for this seller
-    final commPayments = _payments.where((p) =>
-     p.state == _selectedState &&
-     p.seller.toUpperCase() == seller.toUpperCase() &&
-      _isDateInFY(p.date, _selectedFinancialYear) &&
-      isDateInRange(p.date, _repSellerFromCtrl.text, _repSellerToCtrl.text) &&
-     (p.type.contains("COMMISSION") || p.commissionAdjusted > 0)
-    ).toList();
+      final commPayments = _payments.where((p) {
+        final matchState = p.state == _selectedState;
+        final matchSeller = p.seller.toUpperCase() == seller.toUpperCase();
+        final matchFY = _isDateInFY(p.date, _selectedFinancialYear);
+        final matchRange = isDateInRange(p.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
+        final isCommType = p.type.toUpperCase().contains("COMMISSION");
+        return matchState && matchSeller && matchFY && matchRange && (isCommType || p.commissionAdjusted > 0);
+      }).toList();
 
-    final String commReceivedDetails = commPayments.isEmpty
-    ? '—'
-    : commPayments.map((p) => '${money(p.amount > 0 ? p.amount : p.commissionAdjusted)} on ${formatDisplayDate(p.date)}').join(', ');
+      final double totalCommReceived = commPayments.fold<double>(0.0, (s, p) {
+        final double amt = p.amount > 0 ? p.amount : 0.0;
+        final double adj = p.commissionAdjusted > 0 ? p.commissionAdjusted : 0.0;
+        return s + amt + adj;
+      });
+
+      if (totalComm > 0 || totalQty > 0 || adjComm > 0 || totalCommReceived > 0) {
+        sellerSummaries.add({
+          'name': seller,
+          'qty': totalQty,
+          'adjComm': adjComm,
+          'totalComm': totalComm,
+          'commPayments': commPayments,
+          'totalReceived': totalCommReceived,
+          'balance': (totalComm - totalCommReceived).clamp(0.0, double.infinity),
+        });
         grandTotalCommission += totalComm;
         grandTotalQty += totalQty;
         grandTotalAdjComm += adjComm;
+        grandTotalReceived += totalCommReceived;
       }
     }
     sellerSummaries.sort((a, b) => (b['totalComm'] as double).compareTo(a['totalComm'] as double));
-    
-    const greenBorder = PdfColor.fromInt(0xFF4D8B61);
-    const titleGreen = PdfColor.fromInt(0xFF126B35);
-    const redAccent = PdfColor.fromInt(0xFFBD2020);
 
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Container(
-          width: 840,
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.94),
-          decoration: BoxDecoration(color: const Color(0xFF0F172A), borderRadius: BorderRadius.circular(16)),
+          width: 960,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Consolidated Commission Report',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white70, size: 20),
-                      onPressed: () => Navigator.pop(ctx),
-                    ),
-                  ],
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Consolidated Commission Summary', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF0F172A))),
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF047857)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        ),
+                        icon: const Icon(Icons.print_rounded, size: 15, color: Color(0xFF047857)),
+                        label: const Text('Print PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                        onPressed: () => _openCommissionPdfModal(sellerSummaries, grandTotalQty, grandTotalAdjComm, grandTotalCommission, grandTotalReceived),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                    ],
+                  ),
+                ],
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: PdfPreview(
-                    build: (format) async {
-                      final pdf = pw.Document();
-                      pdf.addPage(
-                        pw.MultiPage(
-                          pageFormat: PdfPageFormat.a4,
-                          margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                          header: (context) {
-                            if (context.pageNumber > 1) {
-                              return pw.Container(
-                                margin: const pw.EdgeInsets.only(bottom: 6),
-                                padding: const pw.EdgeInsets.only(bottom: 3),
-                                decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: greenBorder, width: 0.8))),
-                                child: pw.Row(
-                                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    pw.Text(
-                                      '${_myCompany.name} | CONSOLIDATED COMMISSION REPORT',
-                                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
-                                    ),
-                                    pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-                                  ],
-                                ),
-                              );
-                            }
-                            return pw.SizedBox.shrink();
-                          },
-                          footer: (context) => pw.Container(
-                            margin: const pw.EdgeInsets.only(top: 6),
-                            child: pw.Row(
-                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              const Divider(height: 20),
+              Flexible(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.vertical,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: 900,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+                              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                            ),
+                            child: const Row(
                               children: [
-                                pw.Text('CONSOLIDATED COMMISSION REPORT', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
-                                pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
+                                SizedBox(width: 40, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 220, child: Text('SELLER NAME', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 110, child: Text('TOTAL NUTS', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 100, child: Text('COMM ADJ', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 110, child: Text('TOTAL COMM', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 200, child: Text('COMM RECEIVED', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
+                                SizedBox(width: 100, child: Text('BALANCE', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
                               ],
                             ),
                           ),
-                          build: (ctx) => [
-                            pw.Stack(
-                              children: [
-                                pw.Align(
-                                  alignment: pw.Alignment.topCenter,
-                                  child: pw.Text(
-                                    _myCompany.invocation.isNotEmpty ? _myCompany.invocation : 'Om Sri Ganesaya Namaha',
-                                    style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: titleGreen),
-                                  ),
-                                ),
-                                pw.Align(
-                                  alignment: pw.Alignment.topRight,
-                                  child: pw.Column(
-                                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                                    children: _myCompany.phone
-                                        .split(',')
-                                        .map((num) => pw.Text('Cell : ${num.trim()}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold)))
-                                        .toList(),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            pw.SizedBox(height: 4),
-                            pw.Center(
-                              child: pw.Text(
-                                _myCompany.name,
-                                style: pw.TextStyle(fontSize: 25, fontWeight: pw.FontWeight.bold, color: titleGreen, letterSpacing: 0.6),
-                              ),
-                            ),
-                            pw.SizedBox(height: 2),
-                            pw.Center(child: pw.Text(_myCompany.tagline, style: pw.TextStyle(fontSize: 10, letterSpacing: 3, fontWeight: pw.FontWeight.bold))),
-                            pw.SizedBox(height: 2),
-                            pw.Center(child: pw.Text(_myCompany.address, textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: redAccent))),
-                            pw.SizedBox(height: 8),
-                            pw.Center(
-                              child: pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.all(color: greenBorder)),
-                                child: pw.Text('CONSOLIDATED COMMISSION REPORT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                              ),
-                            ),
-                            pw.SizedBox(height: 8),
-                            pw.Container(
-                              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.all(color: greenBorder)),
-                              child: pw.Row(
-                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          ...sellerSummaries.asMap().entries.map((entry) {
+                            final idx = entry.key + 1;
+                            final item = entry.value;
+                            final pList = item['commPayments'] as List<PaymentEntry>;
+                            final double rec = item['totalReceived'] as double;
+                            final double bal = item['balance'] as double;
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9)))),
+                              child: Row(
                                 children: [
-                                  pw.Text('FINANCIAL YEAR: FY $_selectedFinancialYear', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                                  pw.Text('STATE: ${_selectedState.toUpperCase()}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                                  pw.Text('DATE: ${formatDisplayDate(DateTime.now().toIso8601String())}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+                                  SizedBox(width: 40, child: Text('$idx', style: const TextStyle(fontSize: 11.5))),
+                                  SizedBox(width: 220, child: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                                  SizedBox(width: 110, child: Text('${numFmt(item['qty'])} NUTS', textAlign: TextAlign.right, style: const TextStyle(fontSize: 11.5))),
+                                  SizedBox(width: 100, child: Text(money(item['adjComm']), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                                  SizedBox(width: 110, child: Text(money(item['totalComm']), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF047857)))),
+                                  SizedBox(width: 200, child: Center(child: _buildCommissionReceivedCell(item['name'], pList, rec))),
+                                  SizedBox(width: 100, child: Text(money(bal), textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5, color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626)))),
                                 ],
                               ),
+                            );
+                          }),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
                             ),
-                            pw.SizedBox(height: 8),
-                            pw.Table(
-                              columnWidths: const {
-                                0: pw.FlexColumnWidth(0.8),
-                                1: pw.FlexColumnWidth(4.2),
-                                2: pw.FlexColumnWidth(2.5),
-                                3: pw.FlexColumnWidth(2.2),
-                                4: pw.FlexColumnWidth(2.5),
-                              },
-                              border: pw.TableBorder.all(color: greenBorder, width: 0.8),
+                            child: Row(
                               children: [
-                                pw.TableRow(
-                                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
-                                  children: [
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4), child: pw.Text('#', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('SELLER NAME', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('TOTAL NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('COMM ADJ', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('TOTAL COMM', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                  ],
-                                ),
-                                if (sellerSummaries.isEmpty)
-                                  pw.TableRow(
-                                    children: [
-                                      pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text('')),
-                                      pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text('No commission records found for this period.', style: const pw.TextStyle(fontSize: 9))),
-                                      pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text('')),
-                                      pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text('')),
-                                      pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text('')),
-                                    ],
-                                  )
-                                else
-                                  ...sellerSummaries.asMap().entries.map((entry) {
-                                    final idx = entry.key + 1;
-                                    final item = entry.value;
-                                    return pw.TableRow(
-                                      children: [
-                                        pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4), child: pw.Text('$idx', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 9))),
-                                        pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text(item['name'], style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                                        pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('${numFmt(item['qty'])} NUTS', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
-                                        pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text(money(item['adjComm']).replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                                        pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text(money(item['totalComm']).replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                      ],
-                                    );
-                                  }),
-                                pw.TableRow(
-                                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
-                                  children: [
-                                    pw.SizedBox(),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('GRAND TOTAL', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text('${numFmt(grandTotalQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text(money(grandTotalAdjComm).replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                    pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6), child: pw.Text(money(grandTotalCommission).replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                                  ],
-                                ),
+                                SizedBox(width: 260, child: Text('TOTAL = ${sellerSummaries.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+                                SizedBox(width: 110, child: Text('${numFmt(grandTotalQty)} NUTS', textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+                                SizedBox(width: 100, child: Text(money(grandTotalAdjComm), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+                                SizedBox(width: 110, child: Text(money(grandTotalCommission), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+                                SizedBox(width: 200, child: Text(money(grandTotalReceived), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+                                SizedBox(width: 100, child: Text(money(grandTotalCommission - grandTotalReceived), textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
                               ],
                             ),
-                            pw.SizedBox(height: 16),
-                            pw.Padding(
-                              padding: const pw.EdgeInsets.symmetric(vertical: 4),
-                              child: pw.Row(
-                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                                children: [
-                                  pw.Text('Authorized Signature', style: const pw.TextStyle(fontSize: 8.5)),
-                                  pw.Text('For ${_myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                      return pdf.save();
-                    },
-                    canChangeOrientation: false,
-                    canChangePageFormat: false,
-                    canDebug: false,
-                    allowSharing: true,
-                    allowPrinting: true,
-                    initialPageFormat: PdfPageFormat.a4,
-                    pdfFileName: 'CONSOLIDATED_COMMISSION_REPORT.pdf',
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -9873,6 +9914,152 @@ return Column(
         ),
       ),
     );
+  }
+
+  void _openCommissionPdfModal(List<Map<String, dynamic>> sellerSummaries, double gQty, double gAdj, double gComm, double gRec) {
+    showDialog(
+      context: context,
+      builder: (c) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          width: 920,
+          height: 820,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Print Consolidated Commission Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(c)),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: PdfPreview(
+                  build: (format) => _generateConsolidatedCommissionPdf(sellerSummaries, gQty, gAdj, gComm, gRec),
+                  canChangeOrientation: false,
+                  canChangePageFormat: false,
+                  canDebug: false,
+                  allowSharing: true,
+                  allowPrinting: true,
+                  initialPageFormat: PdfPageFormat.a4,
+                  pdfFileName: 'CONSOLIDATED_COMMISSION_REPORT.pdf',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<Uint8List> _generateConsolidatedCommissionPdf(List<Map<String, dynamic>> sellerSummaries, double gQty, double gAdj, double gComm, double gRec) async {
+    final pdf = pw.Document();
+    const greenBorder = PdfColor.fromInt(0xFF4D8B61);
+    const titleGreen = PdfColor.fromInt(0xFF126B35);
+    const redAccent = PdfColor.fromInt(0xFFBD2020);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        header: (context) => context.pageNumber > 1
+            ? pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 6),
+                decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: greenBorder, width: 0.8))),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('${_myCompany.name} | CONSOLIDATED COMMISSION REPORT', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+                    pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+                  ],
+                ),
+              )
+            : pw.SizedBox.shrink(),
+        footer: (context) => pw.Container(
+          margin: const pw.EdgeInsets.only(top: 6),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('CONSOLIDATED COMMISSION REPORT', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
+              pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
+            ],
+          ),
+        ),
+        build: (ctx) => [
+          pw.Center(child: pw.Text(_myCompany.name, style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+          pw.SizedBox(height: 2),
+          pw.Center(child: pw.Text(_myCompany.tagline, style: pw.TextStyle(fontSize: 10, letterSpacing: 2.5, fontWeight: pw.FontWeight.bold))),
+          pw.SizedBox(height: 2),
+          pw.Center(child: pw.Text(_myCompany.address, textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: redAccent))),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(5),
+            color: const PdfColor.fromInt(0xFFEBF5EE),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('FINANCIAL YEAR: FY $_selectedFinancialYear', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+                pw.Text('STATE: ${_selectedState.toUpperCase()}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+                pw.Text('DATE: ${formatDisplayDate(DateTime.now().toIso8601String())}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Table(
+            columnWidths: const {
+              0: pw.FlexColumnWidth(0.6),
+              1: pw.FlexColumnWidth(3.2),
+              2: pw.FlexColumnWidth(2.0),
+              3: pw.FlexColumnWidth(1.8),
+              4: pw.FlexColumnWidth(2.0),
+              5: pw.FlexColumnWidth(2.0),
+            },
+            border: pw.TableBorder.all(color: greenBorder, width: 0.8),
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
+                children: [
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('#', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('SELLER NAME', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TOTAL NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('COMM ADJ', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TOTAL COMM', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('COMM RECEIVED', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                ],
+              ),
+              ...sellerSummaries.asMap().entries.map((entry) {
+                final idx = entry.key + 1;
+                final item = entry.value;
+                return pw.TableRow(
+                  children: [
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('$idx', style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(item['name'], style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${numFmt(item['qty'])} NUTS', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(item['adjComm']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(item['totalComm']), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(item['totalReceived']), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  ],
+                );
+              }),
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
+                children: [
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('-')),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TOTAL = ${sellerSummaries.length}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${numFmt(gQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(gAdj), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(gComm), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(gRec), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    return pdf.save();
   }
 
   String _getMonthName(int month) {
@@ -10457,7 +10644,7 @@ return Column(
 
   void _openTransportReportPrintModal(
     String transporterName,
-    String selectedMonth, // <-- Parameter added here to fix the 6-arguments error
+    String selectedMonth,
     List<Map<String, dynamic>> rows,
     double totalExp,
     double totalPaid,
@@ -10477,15 +10664,8 @@ return Column(
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Text(
-                      selectedMonth != "ALL MONTHS"
-                          ? 'Transporter Statement | $transporterName ($selectedMonth)'
-                          : 'Transporter Statement | $transporterName',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  Text('Transporter Statement — $transporterName ($selectedMonth)',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
                   IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
                 ],
               ),
@@ -10495,7 +10675,7 @@ return Column(
                   build: (format) => _generateTransportPdfReport(
                     format,
                     transporterName,
-                    selectedMonth, // <-- Passed into the PDF generator
+                    selectedMonth,
                     rows,
                     totalExp,
                     totalPaid,
@@ -10520,7 +10700,7 @@ return Column(
   Future<Uint8List> _generateTransportPdfReport(
     PdfPageFormat format,
     String transporter,
-    String selectedMonth, // <-- Parameter added here to resolve 'Undefined name selectedMonth'
+    String selectedMonth,
     List<Map<String, dynamic>> rows,
     double totalExp,
     double totalPaid,
@@ -10529,269 +10709,95 @@ return Column(
     final pdf = pw.Document();
     const greenBorder = PdfColor.fromInt(0xFF4D8B61);
     const titleGreen = PdfColor.fromInt(0xFF126B35);
-    const redAccent = PdfColor.fromInt(0xFFBD2020);
 
-    final bool isSingleMonth = selectedMonth != "ALL MONTHS";
-    final singleRowData = (isSingleMonth && rows.isNotEmpty) ? rows.first : null;
-    final List<dynamic> monthTrips = singleRowData != null ? (singleRowData['trips'] as List<dynamic>? ?? []) : [];
-    final List<TransportPayment> monthPayments = singleRowData != null ? (singleRowData['payments'] as List<TransportPayment>? ?? []) : [];
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        header: (context) {
-          if (context.pageNumber > 1) {
-            return pw.Container(
-              margin: const pw.EdgeInsets.only(bottom: 6),
-              padding: const pw.EdgeInsets.only(bottom: 3),
-              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: greenBorder, width: 0.8))),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    '${_myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase()} | TRANSPORTER: ${transporter.toUpperCase()}',
-                    style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
-                  ),
-                  pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-                ],
-              ),
-            );
-          }
-          return pw.SizedBox.shrink();
-        },
-        footer: (context) => pw.Container(
-          margin: const pw.EdgeInsets.only(top: 6),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text('TRANSPORTER FREIGHT STATEMENT', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
-              pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
-            ],
-          ),
-        ),
-        build: (ctx) => [
-          // Letterhead Header
-          pw.Center(
-            child: pw.Text(
-              _myCompany.invocation.isNotEmpty ? _myCompany.invocation : 'Om Sri Ganesaya Namaha',
-              style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: titleGreen),
-            ),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Center(
-            child: pw.Text(
-              _myCompany.statementName.isNotEmpty ? _myCompany.statementName.toUpperCase() : _myCompany.name.toUpperCase(),
-              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: titleGreen, letterSpacing: 0.5),
-            ),
-          ),
-          pw.SizedBox(height: 2),
-          pw.Center(child: pw.Text(_myCompany.tagline, style: pw.TextStyle(fontSize: 10, letterSpacing: 2.5, fontWeight: pw.FontWeight.bold))),
-          pw.SizedBox(height: 2),
-          pw.Center(child: pw.Text(_myCompany.address, textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: redAccent))),
-          pw.SizedBox(height: 8),
-
-          // Title Banner
-          pw.Center(
-            child: pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.all(color: greenBorder)),
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      build: (ctx) => pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: const pw.BoxDecoration(border: pw.Border.fromBorderSide(pw.BorderSide(color: greenBorder, width: 1.5))),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            pw.Center(
               child: pw.Text(
-                isSingleMonth ? 'TRANSPORTER FREIGHT STATEMENT | $selectedMonth' : 'TRANSPORTER MONTHLY FREIGHT STATEMENT (ALL MONTHS)',
-                style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
+                _myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name,
+                style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: titleGreen, letterSpacing: 0.5),
               ),
             ),
-          ),
-          pw.SizedBox(height: 8),
-
-          // Metadata Info Bar
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.all(color: greenBorder)),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('TRANSPORTER: ${transporter.toUpperCase()}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                pw.Text('STATE: ${_selectedState.toUpperCase()}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                pw.Text('DATE: ${formatDisplayDate(DateTime.now().toIso8601String())}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-              ],
+            pw.SizedBox(height: 3),
+            pw.Center(
+              child: pw.Text(
+                selectedMonth != "ALL MONTHS"
+                    ? 'TRANSPORTER FREIGHT STATEMENT | $selectedMonth'
+                    : 'TRANSPORTER MONTHLY FREIGHT STATEMENT (ALL MONTHS)',
+                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: titleGreen),
+              ),
             ),
-          ),
-          pw.SizedBox(height: 8),
-
-          // Render Single-Month Trip Ledger OR All-Months Summary Table
-          if (isSingleMonth) ...[
-            pw.Text('1. Dispatched Trips in $selectedMonth:', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-            pw.SizedBox(height: 4),
+            pw.SizedBox(height: 8),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(6),
+              color: const PdfColor.fromInt(0xFFEBF5EE),
+              child: pw.Text(
+                'TRANSPORTER : ${transporter.toUpperCase()}',
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen),
+              ),
+            ),
+            pw.SizedBox(height: 8),
             pw.Table(
-              columnWidths: const {
-                0: pw.FlexColumnWidth(1.6),
-                1: pw.FlexColumnWidth(2.0),
-                2: pw.FlexColumnWidth(3.0),
-                3: pw.FlexColumnWidth(3.0),
-                4: pw.FlexColumnWidth(2.0),
-              },
-              border: pw.TableBorder.all(color: greenBorder, width: 0.8),
+              border: const pw.TableBorder(
+                horizontalInside: pw.BorderSide(color: greenBorder, width: 1),
+                verticalInside: pw.BorderSide(color: greenBorder, width: 1),
+              ),
               children: [
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('DATE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TRUCK NO', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('SUPPLIER', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('BUYER', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('FREIGHT (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('MONTH', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('TRIPS', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('FREIGHT EXPENSE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('CUMULATIVE BALANCE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
                   ],
                 ),
-                if (monthTrips.isEmpty)
-                  pw.TableRow(children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('No trips logged in this month', style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('0', textAlign: pw.TextAlign.right)),
-                  ])
-                else
-                  ...monthTrips.map((t) => pw.TableRow(children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(formatDisplayDate(t.date), style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.truck.toString().toUpperCase(), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.supplier.toString().toUpperCase(), style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.buyer.toString().toUpperCase(), style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(t.transportExp), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
-                  ])),
+                ...rows.map((row) {
+                  return pw.TableRow(
+                    children: [
+                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(row['month'] ?? '', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${row['tripsCount']} Trips', style: const pw.TextStyle(fontSize: 8.5))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['expense']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['paid']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['balance']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    ],
+                  );
+                }),
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('${monthTrips.length} Loads', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('Rs. ${pdfMoney(totalExp)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('-')),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(totalExp)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                   ],
                 ),
               ],
             ),
-            pw.SizedBox(height: 10),
-
-            // Payments Table (if any exist for this month)
-            if (monthPayments.isNotEmpty) ...[
-              pw.Text('2. Payments Credited for $selectedMonth:', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-              pw.SizedBox(height: 4),
-              pw.Table(
-                columnWidths: const {
-                  0: pw.FlexColumnWidth(2.0),
-                  1: pw.FlexColumnWidth(3.5),
-                  2: pw.FlexColumnWidth(3.5),
-                  3: pw.FlexColumnWidth(2.5),
-                },
-                border: pw.TableBorder.all(color: greenBorder, width: 0.8),
-                children: [
-                  pw.TableRow(
-                    decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
-                    children: [
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('DATE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('BANK / MODE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('ALLOCATED MONTH', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                    ],
-                  ),
-                  ...monthPayments.map((p) => pw.TableRow(children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(formatDisplayDate(p.date), style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(p.bank, style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(p.billMonth.isNotEmpty ? p.billMonth : selectedMonth, style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(p.amount), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                  ])),
-                  pw.TableRow(
-                    decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
-                    children: [
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TOTAL PAID', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('-')),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('-')),
-                      pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    ],
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-            ],
-
-            // Month Balance Box
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: pw.BoxDecoration(
-                color: const PdfColor.fromInt(0xFFF8FAFC),
-                border: pw.Border.all(color: greenBorder, width: 1),
-              ),
+            pw.Spacer(),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 3),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Total Freight: Rs. ${pdfMoney(totalExp)}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
-                  pw.Text('Total Paid: Rs. ${pdfMoney(totalPaid)}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-                  pw.Text(
-                    'Balance for $selectedMonth: Rs. ${pdfMoney(balanceDue)}',
-                    style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: balanceDue > 0 ? redAccent : titleGreen),
-                  ),
+                  pw.Text('Authorized Signature', style: const pw.TextStyle(fontSize: 8.5)),
+                  pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
                 ],
               ),
-            ),
-          ] else ...[
-            // All-Months Summary Table
-            pw.Table(
-              columnWidths: const {
-                0: pw.FlexColumnWidth(2.5),
-                1: pw.FlexColumnWidth(1.5),
-                2: pw.FlexColumnWidth(2.5),
-                3: pw.FlexColumnWidth(2.5),
-                4: pw.FlexColumnWidth(2.5),
-              },
-              border: pw.TableBorder.all(color: greenBorder, width: 0.8),
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
-                  children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('MONTH', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TRIPS', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('FREIGHT (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('BALANCE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                  ],
-                ),
-                ...rows.map((row) => pw.TableRow(children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(row['month'] ?? '', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${row['tripsCount']} Loads', style: const pw.TextStyle(fontSize: 8.5))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['expense']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['paid']), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['balance']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                ])),
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
-                  children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(totalExp)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                  ],
-                ),
-              ],
             ),
           ],
-          pw.SizedBox(height: 16),
-
-          // Footer Signature Block
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 4),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Authorized Signature', style: const pw.TextStyle(fontSize: 8.5)),
-                pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
-    );
+    ));
     return pdf.save();
   }
   // ---------------- 7. ESTIMATE VIEW ----------------
@@ -11289,17 +11295,18 @@ return Column(
       final sName = t.supplier.toString().trim().toUpperCase();
       final targetSeller = seller.toString().trim().toUpperCase();
       return sName == targetSeller && _isDateInFY(t.date, _selectedFinancialYear);
-    }).length;    
+    }).length; 
+    
     final bool hasSellerBought = rows.any((r) {
       final s = r['sourceSeller']?.toString().trim() ?? '';
       return s.isNotEmpty && s != '—' && s != '-' && s != 'SELF / DIRECT';
     });
     final sellerCommList = _payments.where((p) =>
-       p.state == _selectedState &&
-       p.seller.toUpperCase() == seller.toUpperCase() &&
-     _isDateInFY(p.date, _selectedFinancialYear) &&
-     (p.type.contains("COMMISSION") || p.commissionAdjusted > 0)
-    ).toList();
+      p.state == _selectedState &&
+      p.seller.toUpperCase() == seller.toUpperCase() &&
+      _isDateInFY(p.date, _selectedFinancialYear) &&
+      (p.type.contains("COMMISSION") || p.commissionAdjusted > 0)
+    ).toList();   
 
     final Map<int, pw.TableColumnWidth> pdfColWidths = hidePaid
         ? (hasSellerBought
@@ -11455,7 +11462,10 @@ return Column(
               pw.TableRow(
                 decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
                 children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(
+  padding: const pw.EdgeInsets.all(3.5),
+  child: pw.Text('TOTAL = ${rows.length}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+),
                   if (hasSellerBought) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('-', style: const pw.TextStyle(fontSize: 8))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('-', style: const pw.TextStyle(fontSize: 8))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${numFmt(totalQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
@@ -11468,40 +11478,54 @@ return Column(
             ],
           ),
           pw.SizedBox(height: 6),
+          // Row 1: Total Trucks & Commission Equations
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFF1F8F3), border: pw.Border.all(color: greenBorder, width: 1)),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text('TOTAL TRUCKS = ${rows.length}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+                pw.Text('TOTAL TRUCKS = $totalFySellerTrucks', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
                 pw.Text(
                   tnCommission > 0
                       ? 'Qty Comm (Rs. ${pdfMoney(calculatedQtyComm)}) + AP Comm (Rs. ${pdfMoney(totalComm)}) + TN Comm (Rs. ${pdfMoney(tnCommission)}) = TOTAL: Rs. ${pdfMoney(combinedTotalCommission)}'
                       : 'Qty Comm (Rs. ${pdfMoney(calculatedQtyComm)}) + AP Comm (Rs. ${pdfMoney(totalComm)}) = TOTAL: Rs. ${pdfMoney(combinedTotalCommission)}',
                   style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen),
                 ),
-                if (sellerCommList.isNotEmpty) ...[
-  pw.Container(
-    padding: const pw.EdgeInsets.all(5),
-    decoration: pw.BoxDecoration(color: const PdfColor.fromInt(0xFFF1F8F3), border: pw.Border.all(color: greenBorder, width: 0.8)),
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text('COMMISSION PAID / RECEIVED DETAILS:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen)),
-        pw.SizedBox(height: 2),
-        ...sellerCommList.map((p) => pw.Text(
-          '• Date: ${formatDisplayDate(p.date)}  —  Amount Received: Rs. ${pdfMoney(p.amount > 0 ? p.amount : p.commissionAdjusted)} (${p.mode})',
-          style: const pw.TextStyle(fontSize: 7.5),
-        )),
-      ],
-    ),
-  ),
-  pw.SizedBox(height: 4),
-],
               ],
             ),
           ),
+          pw.SizedBox(height: 5),
+
+         // Row 2: Commission Paid / Received Details
+          if (sellerCommList.isNotEmpty) ...[
+            pw.SizedBox(height: 5),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: pw.BoxDecoration(
+                color: const PdfColor.fromInt(0xFFF8FAFC),
+                border: pw.Border.all(color: greenBorder, width: 0.8),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'COMMISSION PAID / RECEIVED DETAILS:',
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen),
+                  ),
+                  pw.SizedBox(height: 2),
+                  ...sellerCommList.map((p) => pw.Padding(
+                    padding: const pw.EdgeInsets.only(top: 1.5),
+                    child: pw.Text(
+                      'Date: ${formatDisplayDate(p.date)}  |  Amount Received: Rs. ${pdfMoney(p.amount > 0 ? p.amount : p.commissionAdjusted)} (${p.mode})',
+                      style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey900),
+                    ),
+                  )),
+                ],
+              ),
+            ),
+          ],
           pw.SizedBox(height: 10),
           pw.Padding(
             padding: const pw.EdgeInsets.symmetric(vertical: 3),
@@ -11835,7 +11859,10 @@ return Column(
               pw.TableRow(
                 decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
                 children: [
-                  pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(
+  padding: const pw.EdgeInsets.all(3.5),
+  child: pw.Text('TOTAL = ${rows.length}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('-', style: const pw.TextStyle(fontSize: 8))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${numFmt(totalQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalBilled)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
