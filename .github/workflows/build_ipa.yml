@@ -8,7 +8,7 @@ on:
 jobs:
   build-ios:
     name: Build iPad IPA
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Code
@@ -25,6 +25,9 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Pre-create iOS Build Directories
+        run: mkdir -p build/ios/SourcePackages
 
       - name: Install Dependencies
         run: flutter pub get
