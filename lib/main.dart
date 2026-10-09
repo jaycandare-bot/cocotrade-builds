@@ -24,14 +24,17 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+String? firebaseInitError;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Guard Firebase initialization with a timeout
   try {
-    await Firebase.initializeApp().timeout(const Duration(seconds: 3));
+    // Allow Firebase adequate time to establish connection without timing out
+    await Firebase.initializeApp();
   } catch (e) {
-    debugPrint('Firebase init note: $e');
+    firebaseInitError = e.toString();
+    debugPrint('Firebase init error: $e');
   }
 
   runApp(const MyApp());
@@ -2544,12 +2547,29 @@ void _loadPaymentIntoForm(PaymentEntry p) {
       _paySelectedTruckId = "";
     });
   }
+  
  @override
-  void initState() {
-    super.initState();
-    _initializeAppData();
-    _listenToCloudFirestore();    
+void initState() {
+  super.initState();
+  _initializeAppData();
+  _listenToCloudFirestore();
+
+  // Show alert on iPad if Firebase failed to initialize
+  if (firebaseInitError != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade800,
+          duration: const Duration(seconds: 12),
+          content: Text(
+            'FIREBASE SYNC ERROR: $firebaseInitError',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+        ),
+      );
+    });
   }
+}
 
  
   static const MethodChannel _nativeSmsChannel = MethodChannel('com.cocotrade.sms/dispatch');
