@@ -27,36 +27,33 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Show actual error details on the iPad screen if a release widget crashes
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return MaterialApp(
-      home: Scaffold(
-        backgroundColor: const Color(0xFF0F172A),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'CRASH DETECTED ON IPAD:\n\n${details.exceptionAsString()}\n\n${details.stack}',
-              style: const TextStyle(
-                color: Color(0xFFF87171),
-                fontSize: 11,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  };
-
-  // Guard Firebase with a 3-second timeout so it never freezes startup
+  // Guard Firebase initialization with a timeout
   try {
     await Firebase.initializeApp().timeout(const Duration(seconds: 3));
   } catch (e) {
     debugPrint('Firebase init note: $e');
   }
-  
-  runApp(const MainLayoutScreen());
+
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'CocoTrade ERP',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF047857),
+        scaffoldBackgroundColor: const Color(0xFF0F172A),
+      ),
+      // Directionality & Scaffold are supplied by MaterialApp:
+      home: const MainLayoutScreen(), 
+    );
+  }
 }
 class SmsQueueItem {
   String id;
