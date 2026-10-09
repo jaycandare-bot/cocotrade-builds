@@ -868,10 +868,17 @@ if (pDate.isEmpty) {
         final Map<String, TruckEntry> currentTrucksMap = {
           for (var t in _trucks) (t as TruckEntry).id: t
         };
-
+        
         for (var doc in snapshot.docs) {
           final remoteData = doc.data() as Map<String, dynamic>;
           final remoteEntry = TruckEntry.fromJson(remoteData);
+final isDummy = remoteEntry.type == "OPENING BALANCE" || remoteEntry.id.startsWith("OB-");
+final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
+if (isDummy || isPrior) {
+  // Auto-delete stray prior document from Firestore
+  _deleteDocumentFromFirestore('trucks', remoteEntry.id);
+  continue;
+}
 
           if (!currentTrucksMap.containsKey(remoteEntry.id)) {
             currentTrucksMap[remoteEntry.id] = remoteEntry;
@@ -912,6 +919,11 @@ if (pDate.isEmpty) {
         for (var doc in snapshot.docs) {
           final remoteData = doc.data() as Map<String, dynamic>;
           final remoteEntry = PaymentEntry.fromJson(remoteData);
+final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
+if (isPrior || remoteEntry.id.startsWith("OB-")) {
+  _deleteDocumentFromFirestore('payments', remoteEntry.id);
+  continue;
+}
 
           if (!currentPaymentsMap.containsKey(remoteEntry.id)) {
             currentPaymentsMap[remoteEntry.id] = remoteEntry;
@@ -2756,9 +2768,41 @@ Future<void> _recordSyncTimestamp() async {
         } catch (calcErr) {
           debugPrint("Error calculating stats: $calcErr");
         }
-      }  
-  }  
+      } 
+      // --- PERMANENT PURGE OF PRE-FY 26-27 DATA & DUMMY OPENING BALANCES ---
+  final baselineDate = DateTime(2026, 4, 1);
 
+  final priorTrucksToDelete = _trucks.where((t) {
+    final bool isDummy = t.type == "OPENING BALANCE" || t.id.toString().startsWith("OB-");
+    final bool isPrior = parseFlexibleDate(t.date).isBefore(baselineDate);
+    return isDummy || isPrior;
+  }).toList();
+
+  final priorPaymentsToDelete = _payments.where((p) {
+    final bool isDummy = p.id.toString().startsWith("OB-");
+    final bool isPrior = parseFlexibleDate(p.date).isBefore(baselineDate);
+    return isDummy || isPrior;
+  }).toList();
+
+  if (priorTrucksToDelete.isNotEmpty || priorPaymentsToDelete.isNotEmpty) {
+    debugPrint('Purging ${priorTrucksToDelete.length} prior trucks and ${priorPaymentsToDelete.length} prior payments...');
+    
+    _trucks.removeWhere((t) => priorTrucksToDelete.contains(t));
+    _payments.removeWhere((p) => priorPaymentsToDelete.contains(p));
+
+    // Delete permanently from Firestore cloud
+    for (var t in priorTrucksToDelete) {
+      _deleteDocumentFromFirestore('trucks', t.id);
+    }
+    for (var p in priorPaymentsToDelete) {
+      _deleteDocumentFromFirestore('payments', p.id);
+    }
+
+    // Commit purged database immediately to local storage
+    await LocalDriveManager.writeToDrive(_exportStateMap());
+  } 
+  }  
+  
    DateTime _getFYStartDate(String fy) {
     final startYear = int.parse(fy.split('-')[0]);
     return DateTime(startYear, 4, 1);
@@ -5083,17 +5127,23 @@ void _updateNextInvoiceNumber() {
 
    // --- ITEMIZED PREVIOUS FINANCIAL YEAR COLLECTORS ---
 List<Map<String, dynamic>> _getPreviousFYSellerPendingTrucks(String sellerName) {
-if (sellerName.trim().isEmpty) return [];
+// 1. If currently in FY 2026-2027, there is NO previous data (Base Year)
+if (_selectedFinancialYear == "2026-2027" || sellerName.trim().isEmpty) return [];
+
 final sClean = sellerName.trim().toUpperCase();
 final curFyStart = _getFYStartDate(_selectedFinancialYear);
+final baselineStart = DateTime(2026, 4, 1);
 final List<Map<String, dynamic>> result = [];
 
+// Only collect real trucks from 01-04-2026 up to the start of the selected FY
 final priorTrucks = _trucks.where((t) {
+  final dt = parseFlexibleDate(t.date);
   final bool matchState = t.state == _selectedState;
   final bool matchSeller = t.supplier.trim().toUpperCase() == sClean;
   final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
-  final bool isPrior = parseFlexibleDate(t.date).isBefore(curFyStart);
-  return matchState && matchSeller && isRealTruck && isPrior;
+  final bool isAfterBaseline = dt.isAfter(baselineStart.subtract(const Duration(seconds: 1)));
+  final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
+  return matchState && matchSeller && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
 }).toList()
   ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
 
@@ -5130,17 +5180,23 @@ return result;
 }
 
 List<Map<String, dynamic>> _getPreviousFYBuyerPendingTrucks(String buyerName) {
-if (buyerName.trim().isEmpty) return [];
+// 1. If currently in FY 2026-2027, there is NO previous data (Base Year)
+if (_selectedFinancialYear == "2026-2027" || buyerName.trim().isEmpty) return [];
+
 final bClean = buyerName.trim().toUpperCase();
 final curFyStart = _getFYStartDate(_selectedFinancialYear);
+final baselineStart = DateTime(2026, 4, 1);
 final List<Map<String, dynamic>> result = [];
 
+// Only collect real trucks from 01-04-2026 up to the start of the selected FY
 final priorTrucks = _trucks.where((t) {
+  final dt = parseFlexibleDate(t.date);
   final bool matchState = t.state == _selectedState;
   final bool matchBuyer = t.buyer.trim().toUpperCase() == bClean;
   final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
-  final bool isPrior = parseFlexibleDate(t.date).isBefore(curFyStart);
-  return matchState && matchBuyer && isRealTruck && isPrior;
+  final bool isAfterBaseline = dt.isAfter(baselineStart.subtract(const Duration(seconds: 1)));
+  final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
+  return matchState && matchBuyer && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
 }).toList()
   ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
 
@@ -5175,7 +5231,6 @@ for (var t in priorTrucks) {
 }
 return result;
 }
-
   void _carryForwardFinancialYearBalances(String newYear) {
     setState(() {
       _selectedFinancialYear = newYear;
