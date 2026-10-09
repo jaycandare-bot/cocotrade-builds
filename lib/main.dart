@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'firebase_options.dart';
 import 'dart:io';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -889,7 +888,8 @@ if (pDate.isEmpty) {
             final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
             final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
 
-            if (remoteTime.isAfter(localTime) || remoteTime.isAtSameMomentAs(localTime)) {
+            // Strictly update ONLY if remote timestamp is newer (avoids race-condition reverts)
+            if (remoteTime.isAfter(localTime)) {
               currentTrucksMap[remoteEntry.id] = remoteEntry;
             }
           }
@@ -936,7 +936,8 @@ if (pDate.isEmpty) {
             final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
             final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
 
-            if (remoteTime.isAfter(localTime) || remoteTime.isAtSameMomentAs(localTime)) {
+            // Strictly update ONLY if remote timestamp is newer (avoids race-condition reverts)
+            if (remoteTime.isAfter(localTime)) {
               currentPaymentsMap[remoteEntry.id] = remoteEntry;
             }
           }
@@ -2875,8 +2876,7 @@ Timer? _saveDebounceTimer;
               batch = db.batch();
               operationCount = 0;
             }
-          }
-
+          }          
           // Always sync the master config so devices know an update happened
           final metaRef = db.collection('app_metadata').doc('master_config');
           batch.set(metaRef, {
@@ -2884,6 +2884,7 @@ Timer? _saveDebounceTimer;
             'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
             'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
             'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
+            'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(), // <-- ADDED
             'coconutTypes': _coconutTypes,
             'paymentModes': _paymentModes,
             'lastSaved': nowUtcIso,
@@ -3021,51 +3022,44 @@ void _updateNextInvoiceNumber() {
       }
       if (data['companyProfile'] != null) _myCompany = CompanyProfile.fromJson(data['companyProfile']);
       if (data['parties'] != null) _parties = (data['parties'] as List).map((i) => Party.fromJson(i)).toList();
-      if (data['trucks'] != null) _trucks = (data['trucks'] as List).map((i) => TruckEntry.fromJson(i)).toList();_updateNextInvoiceNumber();
       if (data['bankAccounts'] != null) {
         _bankAccounts = (data['bankAccounts'] as List).map((i) => BankAccount.fromJson(i)).toList();
         if (_bankAccounts.isNotEmpty) _selectedBank = _bankAccounts.first;
       }
-      if (data['payments'] != null) _payments = (data['payments'] as List).map((i) => PaymentEntry.fromJson(i)).toList();
       if (data['transportPayments'] != null) _transportPayments = (data['transportPayments'] as List).map((i) => TransportPayment.fromJson(i)).toList();
       if (data['confirmations'] != null) _confirmations = (data['confirmations'] as List).map((i) => TradeConfirmation.fromJson(i)).toList();
       if (data['coconutTypes'] != null) _coconutTypes = List<String>.from(data['coconutTypes']);
       if (data['paymentModes'] != null) _paymentModes = List<String>.from(data['paymentModes']);
-      // ADD THESE LINES TO SYNC YOUR CUSTOM PIN & LOGIN FROM CLOUD
-            if (data.containsKey('savedPin')) {
-              _savedPin = data['savedPin'];
-              SharedPreferences.getInstance().then((p) => p.setString(_prefPinKey, _savedPin));
-            }
-            if (data.containsKey('savedEmail')) {
-              _savedEmail = data['savedEmail'];
-              SharedPreferences.getInstance().then((p) => p.setString(_prefEmailKey, _savedEmail));
-            }
-            if (data.containsKey('isLicensed')) {
-              _isLicensed = data['isLicensed'];
-              SharedPreferences.getInstance().then((p) => p.setBool(_prefIsLicensedKey, _isLicensed));
-            }
       if (data.containsKey('savedPin')) _savedPin = data['savedPin'];
       if (data.containsKey('isLicensed')) _isLicensed = data['isLicensed'];
       if (data.containsKey('savedEmail')) _savedEmail = data['savedEmail'];
+
+      if (data['trucks'] != null) {
+        _trucks = (data['trucks'] as List)
+            .map((i) => TruckEntry.fromJson(i))
+            .where((t) => t.type != "OPENING BALANCE" && !(t.id as String).startsWith("OB-") && t.truck != "OPENING BAL")
+            .toList();
+        _updateNextInvoiceNumber();
+      }
+      if (data['payments'] != null) {
+        _payments = (data['payments'] as List)
+            .map((i) => PaymentEntry.fromJson(i))
+            .where((p) => !(p.id as String).startsWith("OB-") && !p.type.contains("OPENING"))
+            .toList();
+      }
     });
 
     final prefs = await SharedPreferences.getInstance();
-    if (data.containsKey('savedPin')) await prefs.setString(_prefPinKey, data['savedPin']);
-    if (data.containsKey('isLicensed')) await prefs.setBool(_prefIsLicensedKey, data['isLicensed']);
-    if (data.containsKey('savedEmail')) await prefs.setString(_prefEmailKey, data['savedEmail']);
-    if (data['trucks'] != null) {
-        _trucks = (data['trucks'] as List)
-            .map((i) => TruckEntry.fromJson(i))
-            .where((t) => t.type != "OPENING BALANCE" && !(t.id as String).startsWith("OB-"))
-            .toList();
-      }
-    // GUARANTEE LOCAL PERSISTENCE ON ANDROID
+    if (data.containsKey('savedPin')) await prefs.setString(_prefPinKey, _savedPin);
+    if (data.containsKey('isLicensed')) await prefs.setBool(_prefIsLicensedKey, _isLicensed);
+    if (data.containsKey('savedEmail')) await prefs.setString(_prefEmailKey, _savedEmail);
+
     await LocalDriveManager.writeToDrive(data);
 
     if (!kIsWeb && Platform.isAndroid) {
       _processPendingSmsQueue();
     }
-  } 
+  }
 
   void _addGoodsRow({String desc = 'COCONUT', String qty = '', String rate = ''}) {
     final item = GoodsItemController(desc: desc.toUpperCase(), qty: qty, rate: rate);
@@ -6968,7 +6962,6 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
     final sName = _iSeller.trim().toUpperCase();
     final tName = _iTransporter.trim().toUpperCase();
 
-    // STRICT VALIDATION FOR ALL 3 PARTIES
     if (bName.isEmpty || bName == 'SELECT BUYER' ||
         sName.isEmpty || sName == 'SELECT SELLER' ||
         tName.isEmpty || tName == 'SELECT TRANSPORTER') {
@@ -6981,38 +6974,51 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
       return;
     }
 
-    if (_editingInvoiceId != null) {
-      final idx = _trucks.indexWhere((x) => x.id == _editingInvoiceId);
+    final targetId = _editingInvoiceId ?? _editingTruckId;
+
+    if (targetId != null) {
+      final idx = _trucks.indexWhere((x) => x.id == targetId);
       if (idx != -1) {
+        final updated = TruckEntry(
+          id: targetId,
+          state: _selectedState,
+          date: _iDateCtrl.text.trim(),
+          truck: _iLorryCtrl.text.trim().toUpperCase().isEmpty ? "—" : _iLorryCtrl.text.trim().toUpperCase(),
+          supplier: sName,
+          buyer: bName,
+          transporter: tName,
+          type: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.description : "COCONUT",
+          qty: _invTotalGoodsQty,
+          supplierBill: double.tryParse(_iSellerAmountCtrl.text) ?? _trucks[idx].supplierBill,
+          buyerBill: _invGrandTotal,
+          commission: _invCommission > 0 ? _invCommission : 500,
+          transportExp: double.tryParse(_iTransportExpCtrl.text) ?? 0,
+          freight: _invFreight,
+          advance: _invAdvance,
+          isInvoice: true,
+          rate: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.rate : 0,
+          bags: double.tryParse(_iBagsCtrl.text) ?? 0,
+          bagRate: double.tryParse(_iBagRateCtrl.text) ?? 0,
+          loadRate: double.tryParse(_iLoadRateCtrl.text) ?? 0,
+          insurance: double.tryParse(_iInsCtrl.text) ?? 0,
+          amc: double.tryParse(_iAmcCtrl.text) ?? 0,
+          isLoadManual: _iLoadingManual,
+          loadManualAmt: double.tryParse(_iLoadManualAmountCtrl.text) ?? 0,
+          updatedAt: DateTime.now().toUtc().toIso8601String(),
+        );
+
         setState(() {
-          _trucks[idx] = TruckEntry(
-            id: _editingInvoiceId!,
-            state: _selectedState,
-            date: _iDateCtrl.text.trim(),
-            truck: _iLorryCtrl.text.trim().toUpperCase().isEmpty ? "—" : _iLorryCtrl.text.trim().toUpperCase(),
-            supplier: sName,
-            buyer: bName,
-            transporter: tName,
-            type: "COCONUT",
-            qty: _invTotalGoodsQty,
-            supplierBill: double.tryParse(_iSellerAmountCtrl.text) ?? 0,
-            buyerBill: _invGrandTotal,
-            commission: _invCommission > 0 ? _invCommission : 500,
-            transportExp: double.tryParse(_iTransportExpCtrl.text) ?? 0,
-            freight: _invFreight,
-            advance: _invAdvance,
-            isInvoice: true,
-            rate: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.rate : 0,
-            bags: double.tryParse(_iBagsCtrl.text) ?? 0,
-            bagRate: double.tryParse(_iBagRateCtrl.text) ?? 0,
-            loadRate: double.tryParse(_iLoadRateCtrl.text) ?? 0,
-            insurance: double.tryParse(_iInsCtrl.text) ?? 0,
-            amc: double.tryParse(_iAmcCtrl.text) ?? 0,
-            isLoadManual: _iLoadingManual,
-            loadManualAmt: double.tryParse(_iLoadManualAmountCtrl.text) ?? 0,
-          );
+          _trucks[idx] = updated;
           _clearInvoiceForm();
         });
+
+        if (Firebase.apps.isNotEmpty) {
+          FirebaseFirestore.instance
+              .collection('trucks')
+              .doc(updated.id)
+              .set(updated.toJson(), SetOptions(merge: true));
+        }
+
         _commitToLocalDrive();
         _calculateOverdueBills(_trucks);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Invoice updated.')));
@@ -7020,37 +7026,50 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
       }
     }
 
+    final newId = DateTime.now().millisecondsSinceEpoch.toString();
+    final newEntry = TruckEntry(
+      id: newId,
+      state: _selectedState,
+      date: _iDateCtrl.text.trim(),
+      truck: _iLorryCtrl.text.trim().toUpperCase().isEmpty ? "—" : _iLorryCtrl.text.trim().toUpperCase(),
+      supplier: sName,
+      buyer: bName,
+      transporter: tName,
+      type: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.description : "COCONUT",
+      qty: _invTotalGoodsQty,
+      supplierBill: double.tryParse(_iSellerAmountCtrl.text) ?? 0,
+      buyerBill: _invGrandTotal,
+      commission: _invCommission > 0 ? _invCommission : 500,
+      transportExp: double.tryParse(_iTransportExpCtrl.text) ?? 0,
+      freight: _invFreight,
+      advance: _invAdvance,
+      isInvoice: true,
+      rate: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.rate : 0,
+      bags: double.tryParse(_iBagsCtrl.text) ?? 0,
+      bagRate: double.tryParse(_iBagRateCtrl.text) ?? 0,
+      loadRate: double.tryParse(_iLoadRateCtrl.text) ?? 0,
+      insurance: double.tryParse(_iInsCtrl.text) ?? 0,
+      amc: double.tryParse(_iAmcCtrl.text) ?? 0,
+      isLoadManual: _iLoadingManual,
+      loadManualAmt: double.tryParse(_iLoadManualAmountCtrl.text) ?? 0,
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+
     setState(() {
-      _trucks.add(TruckEntry(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        state: _selectedState,
-        date: _iDateCtrl.text.trim(),
-        truck: _iLorryCtrl.text.trim().toUpperCase().isEmpty ? "—" : _iLorryCtrl.text.trim().toUpperCase(),
-        supplier: sName,
-        buyer: bName,
-        transporter: tName,
-        type: "COCONUT",
-        qty: _invTotalGoodsQty,
-        supplierBill: double.tryParse(_iSellerAmountCtrl.text) ?? 0,
-        buyerBill: _invGrandTotal,
-        commission: _invCommission > 0 ? _invCommission : 500,
-        transportExp: double.tryParse(_iTransportExpCtrl.text) ?? 0,
-        freight: _invFreight,
-        advance: _invAdvance,
-        isInvoice: true,
-        rate: _invoiceGoods.isNotEmpty ? _invoiceGoods.first.rate : 0,
-        bags: double.tryParse(_iBagsCtrl.text) ?? 0,
-        bagRate: double.tryParse(_iBagRateCtrl.text) ?? 0,
-        loadRate: double.tryParse(_iLoadRateCtrl.text) ?? 0,
-        insurance: double.tryParse(_iInsCtrl.text) ?? 0,
-        amc: double.tryParse(_iAmcCtrl.text) ?? 0,
-        isLoadManual: _iLoadingManual,
-        loadManualAmt: double.tryParse(_iLoadManualAmountCtrl.text) ?? 0,
-      ));
+      _trucks.add(newEntry);
       _updateNextInvoiceNumber();
       _clearInvoiceForm();
     });
+
+    if (Firebase.apps.isNotEmpty) {
+      FirebaseFirestore.instance
+          .collection('trucks')
+          .doc(newId)
+          .set(newEntry.toJson(), SetOptions(merge: true));
+    }
+
     _commitToLocalDrive();
+    _calculateOverdueBills(_trucks);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Invoice saved to database!')));
   }
 
@@ -8596,17 +8615,23 @@ _commitToLocalDrive();
     final bool hasSpecificBuyer = _repBuyer.trim().isNotEmpty;
 
     final filteredTrucks = _trucks.where((t) {
+      final bool isRealTruck = t.type != "OPENING BALANCE" &&
+          !t.id.toString().startsWith("OB-") &&
+          t.truck != "OPENING BAL" &&
+          !(t.supplier == "—" && t.buyer == "—") &&
+          !t.remarks.toUpperCase().contains("OPENING BAL");
       final matchesState = t.state == _selectedState;
       final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == _repBuyer.toUpperCase();
       final matchesSeller = _repBuyerSellerFilter.isEmpty || t.supplier.toUpperCase() == _repBuyerSellerFilter.toUpperCase();
       final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
       final matchesRange = isDateInRange(t.date, _repBuyerFromCtrl.text, _repBuyerToCtrl.text);
-      return matchesState && matchesBuyer && matchesSeller && matchesFY && matchesRange;
+      return isRealTruck && matchesState && matchesBuyer && matchesSeller && matchesFY && matchesRange;
     }).toList();
 
     final Set<String> visibleTruckIds = filteredTrucks.map((t) => (t.id as String).trim()).toSet();
 
     final buyerPayments = _payments.where((p) {
+      final bool isRealPayment = !p.id.toString().startsWith("OB-") && !p.type.toUpperCase().contains("OPENING");
       final matchesState = p.state == _selectedState;
       final matchesBuyer = !hasSpecificBuyer || p.buyer.toUpperCase() == _repBuyer.toUpperCase();
       final matchesSeller = _repBuyerSellerFilter.isEmpty || p.seller.isEmpty || p.seller.toUpperCase() == _repBuyerSellerFilter.toUpperCase();
@@ -8614,7 +8639,7 @@ _commitToLocalDrive();
       final bool isLinkedToVisibleTruck = p.truckId.trim().isNotEmpty && visibleTruckIds.contains(p.truckId.trim());
       final matchesRange = isLinkedToVisibleTruck || isDateInRange(p.date, _repBuyerFromCtrl.text, _repBuyerToCtrl.text);
       final bool belongsToBuyer = p.buyer.trim().isNotEmpty && matchesBuyer;
-      return matchesState && belongsToBuyer && matchesSeller && matchesFY && matchesRange;
+      return isRealPayment && matchesState && belongsToBuyer && matchesSeller && matchesFY && matchesRange;
     }).toList();
 
     final List<PaymentEntry> directPayments = [];
@@ -8924,74 +8949,33 @@ _commitToLocalDrive();
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
-                        ),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final bool needScroll = constraints.maxWidth < 650;
-                            final double effectiveWidth = needScroll ? 650 : constraints.maxWidth;
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final double minWidth = 1010.0;
+            final double effectiveWidth = constraints.maxWidth < minWidth ? minWidth : constraints.maxWidth;
+            final bool needScroll = constraints.maxWidth < minWidth;
 
-                            Widget tableContent = SizedBox(
-                              width: effectiveWidth,
-                              child: Table(
-                                columnWidths: const {
-                                  0: FlexColumnWidth(1.2), // DATE
-                                  1: FlexColumnWidth(3.0), // SELLER NAME
-                                  2: FlexColumnWidth(1.5), // BILL AMT
-                                  3: FlexColumnWidth(1.5), // RECEIVED AMT
-                                  4: FlexColumnWidth(1.6), // PENDING AMT
-                                },
-                                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                                children: [
-                                  TableRow(
-                                    decoration: const BoxDecoration(color: Color(0xFFDBEAFE)),
-                                    children: [
-                                      cellHeader('DATE'),
-                                      cellHeader('SELLER NAME'),
-                                      cellHeader('BILL AMT', align: TextAlign.right),
-                                      cellHeader('RECEIVED AMT', align: TextAlign.right),
-                                      cellHeader('PENDING AMT', align: TextAlign.right),
-                                    ],
-                                  ),
-                                  ...priorBills.map((item) => TableRow(
-                                        decoration: const BoxDecoration(
-                                          border: Border(bottom: BorderSide(color: Color(0xFFDBEAFE), width: 0.8)),
-                                        ),
-                                        children: [
-                                          cellText(item['date']),
-                                          cellText(item['seller'], isBold: true),
-                                          cellText(money(item['bill']), align: TextAlign.right),
-                                          cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
-                                          cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                        ],
-                                      )),
-                                  TableRow(
-                                    decoration: const BoxDecoration(color: Color(0xFFEFF6FF)),
-                                    children: [
-                                      cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF1E40AF)),
-                                      cellText('—', color: const Color(0xFF1E40AF)),
-                                      cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF1E40AF)),
-                                      cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
-                                      cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
+            Widget tableWidget = SizedBox(
+              width: effectiveWidth,
+              child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
+            );
 
-                            return needScroll
-                                ? SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    physics: const BouncingScrollPhysics(),
-                                    child: tableContent,
-                                  )
-                                : tableContent;
-                          },
-                        ),
-                      ),
+            return needScroll
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: tableWidget,
+                  )
+                : tableWidget;
+          },
+        ),
+      ),
                     ),
               ],
             ),
@@ -9168,17 +9152,16 @@ _commitToLocalDrive();
           child: const Row(
             children: [
               SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 220, child: Text('SELLER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              Expanded(flex: 3, child: Text('SELLER', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 95, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-              SizedBox(width: 280, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              Expanded(flex: 4, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 110, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
               SizedBox(width: 80, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
             ],
           ),
         ),
 
-        // Body Rows
         if (rows.isEmpty)
           Container(
             padding: const EdgeInsets.all(32),
@@ -9200,18 +9183,17 @@ _commitToLocalDrive();
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
-                  SizedBox(
-                    width: 220,
+                  Expanded(
+                    flex: 3,
                     child: Text(
                       row['seller'].toString().toUpperCase(),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                      overflow: TextOverflow.visible,
                     ),
                   ),
                   SizedBox(width: 95, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
                   SizedBox(width: 105, child: Text(row['bill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
-                  SizedBox(
-                    width: 280,
+                  Expanded(
+                    flex: 4,
                     child: _buildSingleLinePaidDetailsCell(
                       pList,
                       advanceAdjusted: (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0,
@@ -9261,7 +9243,7 @@ _commitToLocalDrive();
             );
           }),
 
-       // Footer Total Row with TOTAL = [COUNT] below Date
+        // Footer Total Row
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
@@ -9273,26 +9255,20 @@ _commitToLocalDrive();
             children: [
               SizedBox(
                 width: 85,
-                child: Text(
-                  'TOTAL = ${rows.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5),
-                ),
+                child: Text('TOTAL = ${rows.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5)),
               ),
-              const SizedBox(width: 220, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const Expanded(flex: 3, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
               SizedBox(width: 95, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 105, child: Text(money(vBills), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(width: 280, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              Expanded(flex: 4, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(
                 width: 110,
-                child: Text(
-                  money(vBal),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
-                ),
+                child: Text(money(vBal), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
               ),
               const SizedBox(width: 80),
             ],
           ),
-        ),             
+        ),
       ],
     );
   }
@@ -9619,74 +9595,40 @@ _commitToLocalDrive();
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(color: const Color(0xFFFDE68A)),
-                        ),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final bool needScroll = constraints.maxWidth < 650;
-                            final double effectiveWidth = needScroll ? 650 : constraints.maxWidth;
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final double minWidth = 1180.0;
+            final double effectiveWidth = constraints.maxWidth < minWidth ? minWidth : constraints.maxWidth;
+            final bool needScroll = constraints.maxWidth < minWidth;
 
-                            Widget tableWidget = SizedBox(
-                              width: effectiveWidth,
-                              child: Table(
-                                columnWidths: const {
-                                  0: FlexColumnWidth(1.2), // DATE
-                                  1: FlexColumnWidth(3.0), // BUYER NAME
-                                  2: FlexColumnWidth(1.5), // BILL AMT
-                                  3: FlexColumnWidth(1.5), // PAID AMT
-                                  4: FlexColumnWidth(1.6), // PENDING AMT
-                                },
-                                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                                children: [
-                                  TableRow(
-                                    decoration: const BoxDecoration(color: Color(0xFFFEF3C7)),
-                                    children: [
-                                      cellHeader('DATE'),
-                                      cellHeader('BUYER NAME'),
-                                      cellHeader('BILL AMT', align: TextAlign.right),
-                                      cellHeader('PAID AMT', align: TextAlign.right),
-                                      cellHeader('PENDING AMT', align: TextAlign.right),
-                                    ],
-                                  ),
-                                  ...priorBills.map((item) => TableRow(
-                                        decoration: const BoxDecoration(
-                                          border: Border(bottom: BorderSide(color: Color(0xFFFEF3C7), width: 0.8)),
-                                        ),
-                                        children: [
-                                          cellText(item['date']),
-                                          cellText(item['buyer'], isBold: true),
-                                          cellText(money(item['bill']), align: TextAlign.right),
-                                          cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
-                                          cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                        ],
-                                      )),
-                                  TableRow(
-                                    decoration: const BoxDecoration(color: Color(0xFFFFFBEB)),
-                                    children: [
-                                      cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF78350F)),
-                                      cellText('—', color: const Color(0xFF78350F)),
-                                      cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF78350F)),
-                                      cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
-                                      cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
+            Widget tableWidget = SizedBox(
+              width: effectiveWidth,
+              child: _buildSellerTableContent(
+                displayedSellerRows,
+                visibleSellerQty,
+                visibleSellerComm,
+                visibleSellerBilled,
+                visibleSellerPaid,
+                visibleSellerBalance,
+              ),
+            );
 
-                            return needScroll
-                                ? SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    physics: const BouncingScrollPhysics(),
-                                    child: tableWidget,
-                                  )
-                                : tableWidget;
-                          },
-                        ),
-                      ),
+            return needScroll
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: tableWidget,
+                  )
+                : tableWidget;
+          },
+        ),
+      ),
                     ),
               ],
             ),
@@ -9874,164 +9816,151 @@ _commitToLocalDrive();
   }
   
   Widget _buildSellerTableContent(
-List<Map<String, dynamic>> rows,
-double vQty,
-double vComm,
-double vBilled,
-double vPaid,
-double vBal,
-) {
-// When only buyer is chosen, toggle column to display the respective seller
-final bool isBuyerOnlyMode = _repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isNotEmpty;
+    List<Map<String, dynamic>> rows,
+    double vQty,
+    double vComm,
+    double vBilled,
+    double vPaid,
+    double vBal,
+  ) {
+    final bool isBuyerOnlyMode = _repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isNotEmpty;
 
-return Column(
-  crossAxisAlignment: CrossAxisAlignment.stretch,
-  children: [
-    // Table Header
-    Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 140, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          
-          // DYNAMIC HEADER: SELLER vs BUYER
-          SizedBox(
-            width: 180,
-            child: Text(
-              isBuyerOnlyMode ? 'SELLER' : 'BUYER',
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11),
-            ),
-          ),
-
-          const SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 250, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-          const SizedBox(width: 140, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
-        ],
-      ),
-    ),
-
-    // Body Rows
-    if (rows.isEmpty)
-      Container(
-        padding: const EdgeInsets.all(32),
-        alignment: Alignment.center,
-        child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
-      )
-    else
-      ...rows.map((row) {
-        final t = row['truck'];
-        final double bal = (row['rawBalance'] as num).toDouble();
-        final pList = row['payments'] as List<dynamic>;
-        final String sourceSeller = (row['sourceSeller'] ?? '—').toString().toUpperCase();
-
-        // DYNAMIC PARTY NAME: Shows supplier when buyer is selected, otherwise shows buyer
-        final String partyDisplayName = (isBuyerOnlyMode ? t.supplier : row['buyer']).toString().toUpperCase();
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Table Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+            color: Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+            border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
-              SizedBox(
-                width: 140,
+              const SizedBox(width: 85, child: Text('DATE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const SizedBox(width: 130, child: Text('SELLER BOUGHT', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              Expanded(
+                flex: 3,
                 child: Text(
-                  sourceSeller,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: sourceSeller != '—' ? FontWeight.bold : FontWeight.normal,
-                    color: sourceSeller != '—' ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-                  ),
-                  overflow: TextOverflow.visible,
+                  isBuyerOnlyMode ? 'SELLER' : 'BUYER',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11),
                 ),
               ),
-              SizedBox(
-                width: 180,
-                child: Text(
-                  partyDisplayName,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
-                  overflow: TextOverflow.visible,
-                ),
-              ),
-              SizedBox(width: 90, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
-              SizedBox(width: 95, child: Text(row['commission'], style: const TextStyle(fontSize: 11.5))),
-              SizedBox(width: 105, child: Text(row['sellerBill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
-              SizedBox(width: 250, child: _buildSingleLinePaidDetailsCell(pList)),
-              SizedBox(
-                width: 105,
-                child: Text(
-                  money(bal),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
-                  ),
-                ),
-              ),
-             SizedBox(
-  width: 140,
-  child: FittedBox(
-    fit: BoxFit.scaleDown,
-    alignment: Alignment.centerLeft,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (bal > 0.05) ...[
-          Tooltip(
-            message: 'Pay / Clear Bill (${money(bal)})',
-            child: InkWell(
-              onTap: () => _markCustomBillAsPaid(t, bal, isBuyerSide: false),
-              child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.payments_rounded, size: 15, color: Color(0xFF047857))),
-            ),
-          ),
-          const SizedBox(width: 3),
-        ],
-        InkWell(
-          onTap: () => _openOrGenerateInvoiceForTruck(t),
-          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.receipt_long_rounded, size: 15, color: Color(0xFF0284C7))),
-        ),
-        const SizedBox(width: 3),
-        InkWell(
-          onTap: () => _editFromReport(t),
-          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.edit, size: 15, color: Color(0xFF047857))),
-        ),
-        const SizedBox(width: 3),
-        InkWell(
-          onTap: () async {
-            if (await _confirmDelete(context, "Bill of ${row['sellerBill']}")) {
-              setState(() {
-                _saveStateToHistory();
-                _trucks.remove(t);
-                _calculateOverdueBills(_trucks);
-              });
-              _deleteDocumentFromFirestore('trucks', t.id);
-              _commitToLocalDrive();
-            }
-          },
-          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.delete_outline, size: 15, color: Colors.red)),
-        ),
-      ],
-    ),
-  ),
-),
+              const SizedBox(width: 90, child: Text('QTY', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const SizedBox(width: 95, child: Text('COMM', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const SizedBox(width: 105, child: Text('BILL', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const Expanded(flex: 4, child: Text('PAID DETAILS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const SizedBox(width: 105, child: Text('BALANCE', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
+              const SizedBox(width: 120, child: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B), fontSize: 11))),
             ],
           ),
-        );
-      }),
+        ),
 
-   // Footer Total Row with TOTAL = [COUNT] below Date
+        if (rows.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(32),
+            alignment: Alignment.center,
+            child: const Text('No records found for the selected filters.', style: TextStyle(color: Color(0xFF94A3B8), fontStyle: FontStyle.italic)),
+          )
+        else
+          ...rows.map((row) {
+            final t = row['truck'];
+            final double bal = (row['rawBalance'] as num).toDouble();
+            final pList = row['payments'] as List<dynamic>;
+            final String sourceSeller = (row['sourceSeller'] ?? '—').toString().toUpperCase();
+            final String partyDisplayName = (isBuyerOnlyMode ? t.supplier : row['buyer']).toString().toUpperCase();
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(width: 85, child: Text(row['date'], style: const TextStyle(fontSize: 11.5))),
+                  SizedBox(
+                    width: 130,
+                    child: Text(
+                      sourceSeller,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: sourceSeller != '—' ? FontWeight.bold : FontWeight.normal,
+                        color: sourceSeller != '—' ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      partyDisplayName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                    ),
+                  ),
+                  SizedBox(width: 90, child: Text('${row['qty']} NUTS', style: const TextStyle(fontSize: 11.5))),
+                  SizedBox(width: 95, child: Text(row['commission'], style: const TextStyle(fontSize: 11.5))),
+                  SizedBox(width: 105, child: Text(row['sellerBill'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                  Expanded(flex: 4, child: _buildSingleLinePaidDetailsCell(pList)),
+                  SizedBox(
+                    width: 105,
+                    child: Text(
+                      money(bal),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: bal == 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (bal > 0.05) ...[
+                          Tooltip(
+                            message: 'Pay / Clear Bill (${money(bal)})',
+                            child: InkWell(
+                              onTap: () => _markCustomBillAsPaid(t, bal, isBuyerSide: false),
+                              child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.payments_rounded, size: 15, color: Color(0xFF047857))),
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                        ],
+                        InkWell(
+                          onTap: () => _openOrGenerateInvoiceForTruck(t),
+                          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.receipt_long_rounded, size: 15, color: Color(0xFF0284C7))),
+                        ),
+                        const SizedBox(width: 3),
+                        InkWell(
+                          onTap: () => _editFromReport(t),
+                          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.edit, size: 15, color: Color(0xFF047857))),
+                        ),
+                        const SizedBox(width: 3),
+                        InkWell(
+                          onTap: () async {
+                            if (await _confirmDelete(context, "Bill of ${row['sellerBill']}")) {
+                              setState(() {
+                                _saveStateToHistory();
+                                _trucks.remove(t);
+                                _calculateOverdueBills(_trucks);
+                              });
+                              _deleteDocumentFromFirestore('trucks', t.id);
+                              _commitToLocalDrive();
+                            }
+                          },
+                          child: const Padding(padding: EdgeInsets.all(2.5), child: Icon(Icons.delete_outline, size: 15, color: Colors.red)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+
+        // Footer Total Row
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: const BoxDecoration(
@@ -10043,31 +9972,25 @@ return Column(
             children: [
               SizedBox(
                 width: 85,
-                child: Text(
-                  'TOTAL = ${rows.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5),
-                ),
+                child: Text('TOTAL = ${rows.length}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 11.5)),
               ),
-              const SizedBox(width: 140, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-              const SizedBox(width: 180, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const SizedBox(width: 130, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+              const Expanded(flex: 3, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
               SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              SizedBox(width: 250, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              Expanded(flex: 4, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(
                 width: 105,
-                child: Text(
-                  money(vBal),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)),
-                ),
+                child: Text(money(vBal), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
               ),
-              const SizedBox(width: 140),
+              const SizedBox(width: 120),
             ],
           ),
         ),
-  ],
-);
-}
+      ],
+    );
+  }
 
   // ---------------- CONSOLIDATED COMMISSION REPORT (FIXED PDF) ----------------
  Widget _buildCommissionReceivedCell(String sellerName, List<PaymentEntry> commPayments, double totalReceived) {
