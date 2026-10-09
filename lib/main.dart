@@ -26,13 +26,36 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization warning (non-fatal): $e');
-  }
 
+  // Show actual error details on the iPad screen if a release widget crashes
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return MaterialApp(
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'CRASH DETECTED ON IPAD:\n\n${details.exceptionAsString()}\n\n${details.stack}',
+              style: const TextStyle(
+                color: Color(0xFFF87171),
+                fontSize: 11,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+
+  // Guard Firebase with a 3-second timeout so it never freezes startup
+  try {
+    await Firebase.initializeApp().timeout(const Duration(seconds: 3));
+  } catch (e) {
+    debugPrint('Firebase init note: $e');
+  }
+  
   runApp(const MainLayoutScreen());
 }
 class SmsQueueItem {
