@@ -871,14 +871,15 @@ if (pDate.isEmpty) {
         
         for (var doc in snapshot.docs) {
           final remoteData = doc.data() as Map<String, dynamic>;
-          final remoteEntry = TruckEntry.fromJson(remoteData);
-final isDummy = remoteEntry.type == "OPENING BALANCE" || remoteEntry.id.startsWith("OB-");
-final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
-if (isDummy || isPrior) {
-  // Auto-delete stray prior document from Firestore
-  _deleteDocumentFromFirestore('trucks', remoteEntry.id);
-  continue;
-}
+       final remoteEntry = TruckEntry.fromJson(remoteData);
+
+       // Hard block & cloud purge of pre-2026 or dummy opening balances
+       final isDummy = remoteEntry.type == "OPENING BALANCE" || remoteEntry.id.startsWith("OB-") || remoteEntry.truck == "OPENING BAL";
+       final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
+       if (isDummy || isPrior) {
+         _deleteDocumentFromFirestore('trucks', remoteEntry.id);
+         continue;
+       }
 
           if (!currentTrucksMap.containsKey(remoteEntry.id)) {
             currentTrucksMap[remoteEntry.id] = remoteEntry;
@@ -917,13 +918,16 @@ if (isDummy || isPrior) {
         };
 
         for (var doc in snapshot.docs) {
-          final remoteData = doc.data() as Map<String, dynamic>;
-          final remoteEntry = PaymentEntry.fromJson(remoteData);
-final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
-if (isPrior || remoteEntry.id.startsWith("OB-")) {
-  _deleteDocumentFromFirestore('payments', remoteEntry.id);
-  continue;
-}
+       final remoteData = doc.data() as Map<String, dynamic>;
+       final remoteEntry = PaymentEntry.fromJson(remoteData);
+
+       // Hard block & cloud purge of pre-2026 or dummy payments
+       final isDummy = remoteEntry.id.startsWith("OB-") || remoteEntry.type.contains("OPENING");
+       final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
+       if (isDummy || isPrior) {
+         _deleteDocumentFromFirestore('payments', remoteEntry.id);
+         continue;
+       }
 
           if (!currentPaymentsMap.containsKey(remoteEntry.id)) {
             currentPaymentsMap[remoteEntry.id] = remoteEntry;
@@ -1461,13 +1465,16 @@ if (isPrior || remoteEntry.id.startsWith("OB-")) {
     final bClean = buyerName.trim().toUpperCase();
     final sClean = sellerFilter.trim().toUpperCase();    
     final filteredTrucks = _trucks.where((t) {
-      final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.startsWith("OB-");
+      final bool isRealTruck = t.type != "OPENING BALANCE" && 
+                               !t.id.toString().startsWith("OB-") && 
+                               t.truck != "OPENING BAL" &&
+                               !(t.supplier == "—" && t.buyer == "—");
       final matchesState = t.state == stateName;
       final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == bClean;
       final matchesSeller = sClean.isEmpty || t.supplier.toUpperCase() == sClean;
       final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
       final matchesRange = isDateInRange(t.date, fromDate, toDate);
-      return matchesState && matchesBuyer && matchesSeller && matchesFY && matchesRange;
+      return isRealTruck && matchesState && matchesBuyer && matchesSeller && matchesFY && matchesRange;
     }).toList();
 
     final Set<String> visibleTruckIds = filteredTrucks.map((t) => (t.id as String).trim()).toSet();
@@ -1700,34 +1707,48 @@ if (isPrior || remoteEntry.id.startsWith("OB-")) {
                 final truckId = dayPayments.first.truckId;
                 final type = dayPayments.first.type;
                 final pDate = dateCtrl.text.trim();
-                final baseId = DateTime.now().millisecondsSinceEpoch;
+             final baseId = DateTime.now().millisecondsSinceEpoch;
 
-                setState(() {
-                  _saveStateToHistory();
-                  final oldIds = dayPayments.map((p) => p.id).toSet();
-                  _payments.removeWhere((p) => oldIds.contains(p.id));
+             setState(() {
+               _saveStateToHistory();
+               final oldIds = dayPayments.map((p) => p.id).toSet();
+               _payments.removeWhere((p) => oldIds.contains(p.id));
 
-                  for (int i = 0; i < newAmts.length; i++) {
-                    _payments.add(PaymentEntry(
-                      id: '${baseId}_$i',
-                      state: _selectedState,
-                      type: type,
-                      seller: seller,
-                      buyer: buyer,
-                      amount: newAmts[i],
-                      transportReceived: 0,
-                      settlement: 0,
-                      commissionAdjusted: 0,
-                      mode: mode,
-                      date: pDate,
-                      truckId: truckId,
-                    ));
-                  }
-                  _calculateOverdueBills(_trucks);
-                });
+               // 1. Delete old documents from Firestore
+               for (var oldId in oldIds) {
+                 _deleteDocumentFromFirestore('payments', oldId);
+               }
 
-                _commitToLocalDrive();
-                Navigator.pop(ctx);
+               // 2. Add and immediately write updated entries with new date to Firestore
+               for (int i = 0; i < newAmts.length; i++) {
+                 final newEntry = PaymentEntry(
+                   id: '${baseId}_$i',
+                   state: _selectedState,
+                   type: type,
+                   seller: seller,
+                   buyer: buyer,
+                   amount: newAmts[i],
+                   transportReceived: 0,
+                   settlement: 0,
+                   commissionAdjusted: 0,
+                   mode: mode,
+                   date: pDate,
+                   truckId: truckId,
+                 );
+                 _payments.add(newEntry);
+
+                 if (Firebase.apps.isNotEmpty) {
+                   FirebaseFirestore.instance
+                       .collection('payments')
+                       .doc(newEntry.id)
+                       .set(newEntry.toJson(), SetOptions(merge: true));
+                 }
+               }
+               _calculateOverdueBills(_trucks);
+             });
+
+             _commitToLocalDrive();
+             Navigator.pop(ctx);
               },
               child: const Text('Save Changes'),
             ),
@@ -2669,8 +2690,7 @@ Future<void> _recordSyncTimestamp() async {
       await _commitToLocalDrive();
     }
   }  
-      Future<void> _initializeAppData() async {
-    // Safety timer: guarantees the spinner NEVER stays on screen longer than 1.5s
+     Future<void> _initializeAppData() async {
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted && _isLoading) {
         setState(() {
@@ -2683,7 +2703,6 @@ Future<void> _recordSyncTimestamp() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. Load company profile, letterhead, and templates
       _isProfileSetupDone = prefs.getBool('is_profile_setup_done') ?? false;
       _companyName = prefs.getString('company_name') ?? 'CocoTrade ERP';
       _companyPhone = prefs.getString('company_phone') ?? '';
@@ -2704,104 +2723,73 @@ Future<void> _recordSyncTimestamp() async {
         _buyerMsgTemplate = savedBuyerMsg;
       }
 
-      // 2. Load auth & licensing state together (prevents license screen flashing)
       _isFirstLoginDone = prefs.getBool(_prefFirstLoginKey) ?? false;
       _isLicensed = prefs.getBool(_prefIsLicensedKey) ?? false;
       _savedEmail = prefs.getString(_prefEmailKey) ?? "admin@cocotrade.com";
       _savedPassword = prefs.getString(_prefPassKey) ?? "admin123";
       _savedPin = prefs.getString(_prefPinKey) ?? "1234";
       _savedLicenseKey = prefs.getString(_prefLicenseKeyString) ?? "YOUR-NEW-LICENSE-KEY";
-      
-      try {       
-    // 3. Read local database from disk
-    if (!kIsWeb) {
-      try {
+
+      // 1. Load local disk database
+      if (!kIsWeb) {
         final localData = await LocalDriveManager.readFromDrive();
         if (localData != null) {
-          // If you already have cloud Firestore streams populating state,
-          // local disk loading is only a fallback on desktop:
-          debugPrint("Local drive data read successfully");
+          _applyStateFromMap(localData);
+          debugPrint("Local drive data read and applied successfully");
         }
-      } catch (e) {
-        debugPrint("Error reading local database: $e");
-      }
-    }
-      } catch (dbErr) {
-        debugPrint("Error reading local database: $dbErr");
       }
 
-      // 4. Calculate pending balances & invoice numbers
-      if (_trucks.isNotEmpty) {
-        try {
-          _calculateOverdueBills(_trucks);
-          _updateNextInvoiceNumber();
-        } catch (calcErr) {
-          debugPrint("Error calculating stats: $calcErr");
-        }
-      }
+      // 2. HARD PURGE: Delete dummy opening balances and any records dated before 01-04-2026
+      _purgePre2026AndDummyData();
+
+      _calculateOverdueBills(_trucks);
+      _updateNextInvoiceNumber();
     } catch (e) {
       debugPrint("Startup initialization error: $e");
     } finally {
-      // 5. GUARANTEED: Instantly unlock and show the PIN screen
       if (mounted) {
         setState(() {
           _isLocked = true;
           _isLoading = false;
         });
       }
-    }  
-    // 4. Calculate pending balances & invoice numbers
-      if (_trucks.isNotEmpty) {
-        try {
-          // PURGE PHANTOM OPENING BALANCE ENTRIES
-          final phantomTrucks = _trucks.where((t) => t.type == "OPENING BALANCE" || (t.id as String).startsWith("OB-")).toList();
-          if (phantomTrucks.isNotEmpty) {
-            _trucks.removeWhere((t) => t.type == "OPENING BALANCE" || (t.id as String).startsWith("OB-"));
-            for (var t in phantomTrucks) {
-              _deleteDocumentFromFirestore('trucks', t.id);
-            }
-            _commitToLocalDrive();
-          }
-
-          _calculateOverdueBills(_trucks);
-          _updateNextInvoiceNumber();
-        } catch (calcErr) {
-          debugPrint("Error calculating stats: $calcErr");
-        }
-      } 
-      // --- PERMANENT PURGE OF PRE-FY 26-27 DATA & DUMMY OPENING BALANCES ---
-  final baselineDate = DateTime(2026, 4, 1);
-
-  final priorTrucksToDelete = _trucks.where((t) {
-    final bool isDummy = t.type == "OPENING BALANCE" || t.id.toString().startsWith("OB-");
-    final bool isPrior = parseFlexibleDate(t.date).isBefore(baselineDate);
-    return isDummy || isPrior;
-  }).toList();
-
-  final priorPaymentsToDelete = _payments.where((p) {
-    final bool isDummy = p.id.toString().startsWith("OB-");
-    final bool isPrior = parseFlexibleDate(p.date).isBefore(baselineDate);
-    return isDummy || isPrior;
-  }).toList();
-
-  if (priorTrucksToDelete.isNotEmpty || priorPaymentsToDelete.isNotEmpty) {
-    debugPrint('Purging ${priorTrucksToDelete.length} prior trucks and ${priorPaymentsToDelete.length} prior payments...');
-    
-    _trucks.removeWhere((t) => priorTrucksToDelete.contains(t));
-    _payments.removeWhere((p) => priorPaymentsToDelete.contains(p));
-
-    // Delete permanently from Firestore cloud
-    for (var t in priorTrucksToDelete) {
-      _deleteDocumentFromFirestore('trucks', t.id);
     }
-    for (var p in priorPaymentsToDelete) {
-      _deleteDocumentFromFirestore('payments', p.id);
-    }
+  }
 
-    // Commit purged database immediately to local storage
-    await LocalDriveManager.writeToDrive(_exportStateMap());
-  } 
-  }  
+  void _purgePre2026AndDummyData() {
+    final baselineDate = DateTime(2026, 4, 1);
+
+    final priorTrucksToDelete = _trucks.where((t) {
+      final bool isDummy = t.type == "OPENING BALANCE" || 
+                           t.id.toString().startsWith("OB-") || 
+                           t.truck == "OPENING BAL" ||
+                           (t.supplier == "—" && t.buyer == "—");
+      final bool isPrior = parseFlexibleDate(t.date).isBefore(baselineDate);
+      return isDummy || isPrior;
+    }).toList();
+
+    final priorPaymentsToDelete = _payments.where((p) {
+      final bool isDummy = p.id.toString().startsWith("OB-") || p.type.contains("OPENING");
+      final bool isPrior = parseFlexibleDate(p.date).isBefore(baselineDate);
+      return isDummy || isPrior;
+    }).toList();
+
+    if (priorTrucksToDelete.isNotEmpty || priorPaymentsToDelete.isNotEmpty) {
+      setState(() {
+        _trucks.removeWhere((t) => priorTrucksToDelete.contains(t));
+        _payments.removeWhere((p) => priorPaymentsToDelete.contains(p));
+      });
+
+      for (var t in priorTrucksToDelete) {
+        _deleteDocumentFromFirestore('trucks', t.id);
+      }
+      for (var p in priorPaymentsToDelete) {
+        _deleteDocumentFromFirestore('payments', p.id);
+      }
+
+      _commitToLocalDrive();
+    }
+  }
   
    DateTime _getFYStartDate(String fy) {
     final startYear = int.parse(fy.split('-')[0]);
@@ -5127,110 +5115,110 @@ void _updateNextInvoiceNumber() {
 
    // --- ITEMIZED PREVIOUS FINANCIAL YEAR COLLECTORS ---
 List<Map<String, dynamic>> _getPreviousFYSellerPendingTrucks(String sellerName) {
-// 1. If currently in FY 2026-2027, there is NO previous data (Base Year)
-if (_selectedFinancialYear == "2026-2027" || sellerName.trim().isEmpty) return [];
+    // FY 2026-2027 is the baseline year: previous data is strictly ZERO
+    if (_selectedFinancialYear == "2026-2027" || sellerName.trim().isEmpty) return [];
 
-final sClean = sellerName.trim().toUpperCase();
-final curFyStart = _getFYStartDate(_selectedFinancialYear);
-final baselineStart = DateTime(2026, 4, 1);
-final List<Map<String, dynamic>> result = [];
+    final sClean = sellerName.trim().toUpperCase();
+    final curFyStart = _getFYStartDate(_selectedFinancialYear);
+    final baselineStart = DateTime(2026, 4, 1);
+    final List<Map<String, dynamic>> result = [];
 
-// Only collect real trucks from 01-04-2026 up to the start of the selected FY
-final priorTrucks = _trucks.where((t) {
-  final dt = parseFlexibleDate(t.date);
-  final bool matchState = t.state == _selectedState;
-  final bool matchSeller = t.supplier.trim().toUpperCase() == sClean;
-  final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
-  final bool isAfterBaseline = dt.isAfter(baselineStart.subtract(const Duration(seconds: 1)));
-  final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
-  return matchState && matchSeller && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
-}).toList()
-  ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
+    // Only collect real trucks from 01-04-2026 up to the beginning of the selected FY
+    final priorTrucks = _trucks.where((t) {
+      final dt = parseFlexibleDate(t.date);
+      final bool matchState = t.state == _selectedState;
+      final bool matchSeller = t.supplier.trim().toUpperCase() == sClean;
+      final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
+      final bool isAfterBaseline = !dt.isBefore(baselineStart);
+      final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
+      return matchState && matchSeller && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
+    }).toList()
+      ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
 
-for (var t in priorTrucks) {
-  final double bill = (t.supplierBill as num).toDouble();
-  if (bill <= 0) continue;
+    for (var t in priorTrucks) {
+      final double bill = (t.supplierBill as num).toDouble();
+      if (bill <= 0) continue;
 
-  final matchedPayments = _payments.where((p) {
-    final bool matchState = p.state == _selectedState;
-    final bool matchTruck = p.truckId.trim() == t.id.trim();
-    final bool matchSeller = p.seller.trim().toUpperCase() == sClean;
-    final bool isSellerPay = p.type.toUpperCase().contains("SELLER") || p.mode == "DIRECT";
-    return matchState && matchTruck && matchSeller && isSellerPay;
-  }).toList();
+      final matchedPayments = _payments.where((p) {
+        final bool matchState = p.state == _selectedState;
+        final bool matchTruck = p.truckId.trim() == t.id.trim();
+        final bool matchSeller = p.seller.trim().toUpperCase() == sClean;
+        final bool isSellerPay = p.type.toUpperCase().contains("SELLER") || p.mode == "DIRECT";
+        return matchState && matchTruck && matchSeller && isSellerPay;
+      }).toList();
 
-  final double paid = matchedPayments.fold<double>(
-    0.0,
-    (sum, p) => sum + p.amount + p.settlement + p.commissionAdjusted,
-  );
+      final double paid = matchedPayments.fold<double>(
+        0.0,
+        (sum, p) => sum + p.amount + p.settlement + p.commissionAdjusted,
+      );
 
-  final double pending = (bill - paid).clamp(0.0, double.infinity);
-  if (pending > 0.05) {
-    result.add({
-      'truck': t,
-      'date': formatDisplayDate(t.date),
-      'buyer': t.buyer.isNotEmpty ? t.buyer.toString().toUpperCase() : '—',
-      'bill': bill,
-      'paid': paid,
-      'pending': pending,
-    });
+      final double pending = (bill - paid).clamp(0.0, double.infinity);
+      if (pending > 0.05) {
+        result.add({
+          'truck': t,
+          'date': formatDisplayDate(t.date),
+          'buyer': t.buyer.isNotEmpty ? t.buyer.toString().toUpperCase() : '—',
+          'bill': bill,
+          'paid': paid,
+          'pending': pending,
+        });
+      }
+    }
+    return result;
   }
-}
-return result;
-}
 
-List<Map<String, dynamic>> _getPreviousFYBuyerPendingTrucks(String buyerName) {
-// 1. If currently in FY 2026-2027, there is NO previous data (Base Year)
-if (_selectedFinancialYear == "2026-2027" || buyerName.trim().isEmpty) return [];
+  List<Map<String, dynamic>> _getPreviousFYBuyerPendingTrucks(String buyerName) {
+    // FY 2026-2027 is the baseline year: previous data is strictly ZERO
+    if (_selectedFinancialYear == "2026-2027" || buyerName.trim().isEmpty) return [];
 
-final bClean = buyerName.trim().toUpperCase();
-final curFyStart = _getFYStartDate(_selectedFinancialYear);
-final baselineStart = DateTime(2026, 4, 1);
-final List<Map<String, dynamic>> result = [];
+    final bClean = buyerName.trim().toUpperCase();
+    final curFyStart = _getFYStartDate(_selectedFinancialYear);
+    final baselineStart = DateTime(2026, 4, 1);
+    final List<Map<String, dynamic>> result = [];
 
-// Only collect real trucks from 01-04-2026 up to the start of the selected FY
-final priorTrucks = _trucks.where((t) {
-  final dt = parseFlexibleDate(t.date);
-  final bool matchState = t.state == _selectedState;
-  final bool matchBuyer = t.buyer.trim().toUpperCase() == bClean;
-  final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
-  final bool isAfterBaseline = dt.isAfter(baselineStart.subtract(const Duration(seconds: 1)));
-  final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
-  return matchState && matchBuyer && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
-}).toList()
-  ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
+    // Only collect real trucks from 01-04-2026 up to the beginning of the selected FY
+    final priorTrucks = _trucks.where((t) {
+      final dt = parseFlexibleDate(t.date);
+      final bool matchState = t.state == _selectedState;
+      final bool matchBuyer = t.buyer.trim().toUpperCase() == bClean;
+      final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.toString().startsWith("OB-");
+      final bool isAfterBaseline = !dt.isBefore(baselineStart);
+      final bool isPriorToCurrentFy = dt.isBefore(curFyStart);
+      return matchState && matchBuyer && isRealTruck && isAfterBaseline && isPriorToCurrentFy;
+    }).toList()
+      ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
 
-for (var t in priorTrucks) {
-  final double bill = (t.buyerBill > 0 ? t.buyerBill : t.supplierBill).toDouble();
-  if (bill <= 0) continue;
+    for (var t in priorTrucks) {
+      final double bill = (t.buyerBill > 0 ? t.buyerBill : t.supplierBill).toDouble();
+      if (bill <= 0) continue;
 
-  final matchedPayments = _payments.where((p) {
-    final bool matchState = p.state == _selectedState;
-    final bool matchTruck = p.truckId.trim() == t.id.trim();
-    final bool matchBuyer = p.buyer.trim().toUpperCase() == bClean;
-    final bool isBuyerPay = p.type.toUpperCase().contains("BUYER") || p.mode == "DIRECT";
-    return matchState && matchTruck && matchBuyer && isBuyerPay;
-  }).toList();
+      final matchedPayments = _payments.where((p) {
+        final bool matchState = p.state == _selectedState;
+        final bool matchTruck = p.truckId.trim() == t.id.trim();
+        final bool matchBuyer = p.buyer.trim().toUpperCase() == bClean;
+        final bool isBuyerPay = p.type.toUpperCase().contains("BUYER") || p.mode == "DIRECT";
+        return matchState && matchTruck && matchBuyer && isBuyerPay;
+      }).toList();
 
-  final double paid = matchedPayments.fold<double>(
-    0.0,
-    (sum, p) => sum + p.amount + p.settlement,
-  );
+      final double paid = matchedPayments.fold<double>(
+        0.0,
+        (sum, p) => sum + p.amount + p.settlement,
+      );
 
-  final double pending = (bill - paid).clamp(0.0, double.infinity);
-  if (pending > 0.05) {
-    result.add({
-      'truck': t,
-      'date': formatDisplayDate(t.date),
-      'seller': t.supplier.isNotEmpty ? t.supplier.toString().toUpperCase() : '—',
-      'bill': bill,
-      'paid': paid,
-      'pending': pending,
-    });
+      final double pending = (bill - paid).clamp(0.0, double.infinity);
+      if (pending > 0.05) {
+        result.add({
+          'truck': t,
+          'date': formatDisplayDate(t.date),
+          'seller': t.supplier.isNotEmpty ? t.supplier.toString().toUpperCase() : '—',
+          'bill': bill,
+          'paid': paid,
+          'pending': pending,
+        });
+      }
+    }
+    return result;
   }
-}
-return result;
-}
   void _carryForwardFinancialYearBalances(String newYear) {
     setState(() {
       _selectedFinancialYear = newYear;
@@ -5528,33 +5516,33 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                   if (a > 0) splitAmts.add(a);
                 }
 
-               setState(() {
-              if (sClean != p.seller.trim().toUpperCase() || bClean != p.buyer.trim().toUpperCase()) {
-                p.truckId = '';
-              }
-              p.seller = sClean;
-              p.buyer = bClean;
-              p.amount = splitAmts.isNotEmpty ? splitAmts.first : p.amount;
-              p.settlement = double.tryParse(discCtrl.text) ?? p.settlement;
-              p.commissionAdjusted = double.tryParse(commAdjCtrl.text) ?? p.commissionAdjusted;
-              p.mode = mode;
-              p.date = dateCtrl.text.trim();
-              // REFRESH TIMESTAMP SO FIREBASE CLOUD SYNC IDENTIFIES IT AS MODIFIED
-              p.updatedAt = DateTime.now().toUtc().toIso8601String();
+                setState(() {
+                  if (sClean != p.seller.trim().toUpperCase() || bClean != p.buyer.trim().toUpperCase()) {
+                    p.truckId = '';
+                  }
+                  p.seller = sClean;
+                  p.buyer = bClean;
+                  p.amount = splitAmts.isNotEmpty ? splitAmts.first : p.amount;
+                  p.settlement = double.tryParse(discCtrl.text) ?? p.settlement;
+                  p.commissionAdjusted = double.tryParse(commAdjCtrl.text) ?? p.commissionAdjusted;
+                  p.mode = mode;
+                  p.date = dateCtrl.text.trim();
+                  // REFRESH TIMESTAMP SO FIREBASE CLOUD SYNC IDENTIFIES IT AS MODIFIED
+                  p.updatedAt = DateTime.now().toUtc().toIso8601String();
 
-              _calculateOverdueBills(_trucks);
-            });
+                  _calculateOverdueBills(_trucks);
+                });
 
-            // Write immediately to Firestore so date changes reflect on all devices
-            if (Firebase.apps.isNotEmpty) {
-              FirebaseFirestore.instance
-                  .collection('payments')
-                  .doc(p.id)
-                  .set(p.toJson(), SetOptions(merge: true));
-            }
+                // Write directly to Firestore so the date saves immediately in cloud
+                if (Firebase.apps.isNotEmpty) {
+                  FirebaseFirestore.instance
+                      .collection('payments')
+                      .doc(p.id)
+                      .set(p.toJson(), SetOptions(merge: true));
+                }
 
-            _commitToLocalDrive();
-            Navigator.pop(ctx);
+                _commitToLocalDrive();
+                Navigator.pop(ctx);
               },
               child: const Text('Save Changes'),
             ),
@@ -6423,54 +6411,99 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
 
           const SizedBox(height: 22),
 
-          // Action Buttons
-          Row(
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF047857),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: () {
-                  final double sBill = double.tryParse(_tSBillCtrl.text) ?? 0;
-                  final double bBill = _hasCustomBuyerBill
-                      ? (double.tryParse(_tBBillCtrl.text) ?? sBill)
-                      : sBill;
+         // Action Buttons
+              Row(
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF047857),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () {
+                      final double sBill = double.tryParse(_tSBillCtrl.text) ?? 0;
+                      final double bBill = _hasCustomBuyerBill
+                          ? (double.tryParse(_tBBillCtrl.text) ?? sBill)
+                          : sBill;
 
-                  final sName = _tSupplier.trim().toUpperCase();
-                  final bName = _tBuyer.trim().toUpperCase();
-                  final tName = _tTransporter.trim().toUpperCase();
-                  final srcSeller = _tSourceSeller.trim().toUpperCase();
+                      final sName = _tSupplier.trim().toUpperCase();
+                      final bName = _tBuyer.trim().toUpperCase();
+                      final tName = _tTransporter.trim().toUpperCase();
+                      final srcSeller = _tSourceSeller.trim().toUpperCase();
 
-                  if (sName.isEmpty || sName == 'SELECT SELLER' ||
-                      bName.isEmpty || bName == 'SELECT BUYER' ||
-                      tName.isEmpty || tName == 'SELECT TRANSPORTER') {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        backgroundColor: Colors.red,
-                        content: Text('Error: Supplier, Buyer, and Transporter are ALL mandatory!'),
-                      ),
-                    );
-                    return;
-                  }
+                      if (sName.isEmpty || sName == 'SELECT SELLER' ||
+                          bName.isEmpty || bName == 'SELECT BUYER' ||
+                          tName.isEmpty || tName == 'SELECT TRANSPORTER') {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: Colors.red,
+                            content: Text('Error: Supplier, Buyer, and Transporter are ALL mandatory!'),
+                          ),
+                        );
+                        return;
+                      }
 
-                  if (sBill <= 0 && bBill <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        backgroundColor: Colors.red,
-                        content: Text('Error: Please enter a valid Bill Amount!'),
-                      ),
-                    );
-                    return;
-                  }
+                      if (sBill <= 0 && bBill <= 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: Colors.red,
+                            content: Text('Error: Please enter a valid Bill Amount!'),
+                          ),
+                        );
+                        return;
+                      }
 
-                  if (_editingTruckId != null) {
-                    final idx = _trucks.indexWhere((x) => x.id == _editingTruckId);
-                    if (idx != -1) {
-                      setState(() {
-                        _trucks[idx] = TruckEntry(
-                          id: _editingTruckId!,
+                      // >>> HERE IS THE BLOCK: <<<
+                      if (_editingTruckId != null) {
+                        final idx = _trucks.indexWhere((x) => x.id == _editingTruckId);
+                        if (idx != -1) {
+                          final updatedTruck = TruckEntry(
+                            id: _editingTruckId!,
+                            state: _selectedState,
+                            date: _tDateCtrl.text.trim(),
+                            truck: _tTruckCtrl.text.trim().toUpperCase(),
+                            supplier: sName,
+                            sourceSeller: srcSeller,
+                            buyer: bName,
+                            transporter: tName,
+                            type: _tCoconutType,
+                            qty: double.tryParse(_tQtyCtrl.text) ?? 0,
+                            supplierBill: sBill,
+                            buyerBill: bBill,
+                            commission: double.tryParse(_tCommCtrl.text) ?? 500,
+                            transportExp: double.tryParse(_tExpCtrl.text) ?? 0,
+                            freight: double.tryParse(_tFreightCtrl.text) ?? 0,
+                            advance: double.tryParse(_tAdvCtrl.text) ?? 0,
+                            isInvoice: false,
+                            remarks: _tRemarksCtrl.text.trim().toUpperCase(),
+                            invoiceNo: _iNoCtrl.text.trim(),
+                            updatedAt: DateTime.now().toUtc().toIso8601String(),
+                          );
+
+                          setState(() {
+                            _trucks[idx] = updatedTruck;
+                            _clearTruckForm();
+                          });
+
+                          // Direct live push to Firestore for updated date & details
+                          if (Firebase.apps.isNotEmpty) {
+                            FirebaseFirestore.instance
+                                .collection('trucks')
+                                .doc(updatedTruck.id)
+                                .set(updatedTruck.toJson(), SetOptions(merge: true));
+                          }
+
+                          _commitToLocalDrive();
+                          _calculateOverdueBills(_trucks);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Truck entry updated.')),
+                          );
+                        }
+                      } else {
+                        // Creating a brand new truck entry
+                        final newId = DateTime.now().millisecondsSinceEpoch.toString();
+                        final newTruck = TruckEntry(
+                          id: newId,
                           state: _selectedState,
                           date: _tDateCtrl.text.trim(),
                           truck: _tTruckCtrl.text.trim().toUpperCase(),
@@ -6490,45 +6523,29 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                           remarks: _tRemarksCtrl.text.trim().toUpperCase(),
                           invoiceNo: _iNoCtrl.text.trim(),
                         );
-                        _clearTruckForm();
-                      });
-                      _commitToLocalDrive();
-                      _calculateOverdueBills(_trucks);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Truck entry updated.')));
-                    }
-                  } else {
-                    setState(() {
-                      _trucks.add(TruckEntry(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        state: _selectedState,
-                        date: _tDateCtrl.text.trim(),
-                        truck: _tTruckCtrl.text.trim().toUpperCase(),
-                        supplier: sName,
-                        sourceSeller: srcSeller,
-                        buyer: bName,
-                        transporter: tName,
-                        type: _tCoconutType,
-                        qty: double.tryParse(_tQtyCtrl.text) ?? 0,
-                        supplierBill: sBill,
-                        buyerBill: bBill,
-                        commission: double.tryParse(_tCommCtrl.text) ?? 500,
-                        transportExp: double.tryParse(_tExpCtrl.text) ?? 0,
-                        freight: double.tryParse(_tFreightCtrl.text) ?? 0,
-                        advance: double.tryParse(_tAdvCtrl.text) ?? 0,
-                        isInvoice: false,
-                        remarks: _tRemarksCtrl.text.trim().toUpperCase(),
-                        invoiceNo: _iNoCtrl.text.trim(),
-                      ));
-                      _clearTruckForm();
-                    });
-                    _commitToLocalDrive();
-                    _calculateOverdueBills(_trucks);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Truck entry recorded.')));
-                  }
-                },
-                icon: const Icon(Icons.check_circle_outline, size: 17),
-                label: Text(_editingTruckId != null ? 'Update Entry' : 'Save Truck Entry', style: const TextStyle(fontWeight: FontWeight.bold)),
-              ),
+
+                        setState(() {
+                          _trucks.add(newTruck);
+                          _clearTruckForm();
+                        });
+
+                        if (Firebase.apps.isNotEmpty) {
+                          FirebaseFirestore.instance
+                              .collection('trucks')
+                              .doc(newId)
+                              .set(newTruck.toJson(), SetOptions(merge: true));
+                        }
+
+                        _commitToLocalDrive();
+                        _calculateOverdueBills(_trucks);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Truck entry recorded.')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.check_circle_outline, size: 17),
+                    label: Text(_editingTruckId != null ? 'Update Entry' : 'Save Truck Entry', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
               const SizedBox(width: 10),
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
@@ -8903,72 +8920,79 @@ _commitToLocalDrive();
                 ),
                 const SizedBox(height: 10),
 
-                // Full-Width Responsive Table (Fills 100% on iPad/PC, Scrolls smoothly on Android)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                // Full-Width Responsive Table (Fills 100% on iPad/PC, Scrollable on Android)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final bool needScroll = constraints.maxWidth < 650;
+                            final double effectiveWidth = needScroll ? 650 : constraints.maxWidth;
+
+                            Widget tableContent = SizedBox(
+                              width: effectiveWidth,
+                              child: Table(
+                                columnWidths: const {
+                                  0: FlexColumnWidth(1.2), // DATE
+                                  1: FlexColumnWidth(3.0), // SELLER NAME
+                                  2: FlexColumnWidth(1.5), // BILL AMT
+                                  3: FlexColumnWidth(1.5), // RECEIVED AMT
+                                  4: FlexColumnWidth(1.6), // PENDING AMT
+                                },
+                                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                                children: [
+                                  TableRow(
+                                    decoration: const BoxDecoration(color: Color(0xFFDBEAFE)),
+                                    children: [
+                                      cellHeader('DATE'),
+                                      cellHeader('SELLER NAME'),
+                                      cellHeader('BILL AMT', align: TextAlign.right),
+                                      cellHeader('RECEIVED AMT', align: TextAlign.right),
+                                      cellHeader('PENDING AMT', align: TextAlign.right),
+                                    ],
+                                  ),
+                                  ...priorBills.map((item) => TableRow(
+                                        decoration: const BoxDecoration(
+                                          border: Border(bottom: BorderSide(color: Color(0xFFDBEAFE), width: 0.8)),
+                                        ),
+                                        children: [
+                                          cellText(item['date']),
+                                          cellText(item['seller'], isBold: true),
+                                          cellText(money(item['bill']), align: TextAlign.right),
+                                          cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
+                                          cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
+                                        ],
+                                      )),
+                                  TableRow(
+                                    decoration: const BoxDecoration(color: Color(0xFFEFF6FF)),
+                                    children: [
+                                      cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF1E40AF)),
+                                      cellText('—', color: const Color(0xFF1E40AF)),
+                                      cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF1E40AF)),
+                                      cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
+                                      cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            return needScroll
+                                ? SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    physics: const BouncingScrollPhysics(),
+                                    child: tableContent,
+                                  )
+                                : tableContent;
+                          },
+                        ),
+                      ),
                     ),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final double tableWidth = constraints.maxWidth < 650 ? 650 : constraints.maxWidth;
-                        return SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          physics: const BouncingScrollPhysics(),
-                          child: SizedBox(
-                            width: tableWidth,
-                            child: Table(
-                              columnWidths: const {
-                                0: FlexColumnWidth(1.2), // DATE
-                                1: FlexColumnWidth(3.0), // SELLER NAME
-                                2: FlexColumnWidth(1.5), // BILL AMT
-                                3: FlexColumnWidth(1.5), // RECEIVED AMT
-                                4: FlexColumnWidth(1.6), // PENDING AMT
-                              },
-                              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                              children: [
-                                TableRow(
-                                  decoration: const BoxDecoration(color: Color(0xFFDBEAFE)),
-                                  children: [
-                                    cellHeader('DATE'),
-                                    cellHeader('SELLER NAME'),
-                                    cellHeader('BILL AMT', align: TextAlign.right),
-                                    cellHeader('RECEIVED AMT', align: TextAlign.right),
-                                    cellHeader('PENDING AMT', align: TextAlign.right),
-                                  ],
-                                ),
-                                ...priorBills.map((item) => TableRow(
-                                      decoration: const BoxDecoration(
-                                        border: Border(bottom: BorderSide(color: Color(0xFFDBEAFE), width: 0.8)),
-                                      ),
-                                      children: [
-                                        cellText(item['date']),
-                                        cellText(item['seller'], isBold: true),
-                                        cellText(money(item['bill']), align: TextAlign.right),
-                                        cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
-                                        cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                      ],
-                                    )),
-                                TableRow(
-                                  decoration: const BoxDecoration(color: Color(0xFFEFF6FF)),
-                                  children: [
-                                    cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF1E40AF)),
-                                    cellText('—', color: const Color(0xFF1E40AF)),
-                                    cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF1E40AF)),
-                                    cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
-                                    cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
               ],
             ),
           );
@@ -9279,14 +9303,16 @@ _commitToLocalDrive();
   final bool hasSpecificBuyer = _repSellerBuyerFilter.trim().isNotEmpty;
   
   final sellerAllStateTrucks = _trucks.where((t) {
-  final bool isRealTruck = t.type != "OPENING BALANCE" && !t.id.startsWith("OB-");
-  final matchesSeller = !hasSpecificSeller || t.supplier.toUpperCase() == _repSeller.toUpperCase();
-  final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == _repSellerBuyerFilter.toUpperCase();
-  final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
-  final matchesRange = isDateInRange(t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
-  return matchesSeller && matchesBuyer && matchesFY && matchesRange;
-}).toList();
-
+      final bool isRealTruck = t.type != "OPENING BALANCE" && 
+                               !t.id.toString().startsWith("OB-") && 
+                               t.truck != "OPENING BAL" &&
+                               !(t.supplier == "—" && t.buyer == "—");
+      final matchesSeller = !hasSpecificSeller || t.supplier.toUpperCase() == _repSeller.toUpperCase();
+      final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == _repSellerBuyerFilter.toUpperCase();
+      final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
+      final matchesRange = isDateInRange(t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
+      return isRealTruck && matchesSeller && matchesBuyer && matchesFY && matchesRange;
+    }).toList();
     double apCommissionTotal = 0.0;
     double tnCommissionTotal = 0.0;
 
@@ -9589,72 +9615,79 @@ _commitToLocalDrive();
                 ),
                 const SizedBox(height: 10),
 
-                // Full-Width Responsive Table (Fills 100% on iPad/PC, Scrolls smoothly on Android)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFFDE68A)),
+                // Full-Width Responsive Table (100% on iPad/PC, Smooth horizontal scroll on Android)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final bool needScroll = constraints.maxWidth < 650;
+                            final double effectiveWidth = needScroll ? 650 : constraints.maxWidth;
+
+                            Widget tableWidget = SizedBox(
+                              width: effectiveWidth,
+                              child: Table(
+                                columnWidths: const {
+                                  0: FlexColumnWidth(1.2), // DATE
+                                  1: FlexColumnWidth(3.0), // BUYER NAME
+                                  2: FlexColumnWidth(1.5), // BILL AMT
+                                  3: FlexColumnWidth(1.5), // PAID AMT
+                                  4: FlexColumnWidth(1.6), // PENDING AMT
+                                },
+                                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                                children: [
+                                  TableRow(
+                                    decoration: const BoxDecoration(color: Color(0xFFFEF3C7)),
+                                    children: [
+                                      cellHeader('DATE'),
+                                      cellHeader('BUYER NAME'),
+                                      cellHeader('BILL AMT', align: TextAlign.right),
+                                      cellHeader('PAID AMT', align: TextAlign.right),
+                                      cellHeader('PENDING AMT', align: TextAlign.right),
+                                    ],
+                                  ),
+                                  ...priorBills.map((item) => TableRow(
+                                        decoration: const BoxDecoration(
+                                          border: Border(bottom: BorderSide(color: Color(0xFFFEF3C7), width: 0.8)),
+                                        ),
+                                        children: [
+                                          cellText(item['date']),
+                                          cellText(item['buyer'], isBold: true),
+                                          cellText(money(item['bill']), align: TextAlign.right),
+                                          cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
+                                          cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
+                                        ],
+                                      )),
+                                  TableRow(
+                                    decoration: const BoxDecoration(color: Color(0xFFFFFBEB)),
+                                    children: [
+                                      cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF78350F)),
+                                      cellText('—', color: const Color(0xFF78350F)),
+                                      cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF78350F)),
+                                      cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
+                                      cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            return needScroll
+                                ? SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    physics: const BouncingScrollPhysics(),
+                                    child: tableWidget,
+                                  )
+                                : tableWidget;
+                          },
+                        ),
+                      ),
                     ),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final double tableWidth = constraints.maxWidth < 650 ? 650 : constraints.maxWidth;
-                        return SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          physics: const BouncingScrollPhysics(),
-                          child: SizedBox(
-                            width: tableWidth,
-                            child: Table(
-                              columnWidths: const {
-                                0: FlexColumnWidth(1.2), // DATE
-                                1: FlexColumnWidth(3.0), // BUYER NAME
-                                2: FlexColumnWidth(1.5), // BILL AMT
-                                3: FlexColumnWidth(1.5), // PAID AMT
-                                4: FlexColumnWidth(1.6), // PENDING AMT
-                              },
-                              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                              children: [
-                                TableRow(
-                                  decoration: const BoxDecoration(color: Color(0xFFFEF3C7)),
-                                  children: [
-                                    cellHeader('DATE'),
-                                    cellHeader('BUYER NAME'),
-                                    cellHeader('BILL AMT', align: TextAlign.right),
-                                    cellHeader('PAID AMT', align: TextAlign.right),
-                                    cellHeader('PENDING AMT', align: TextAlign.right),
-                                  ],
-                                ),
-                                ...priorBills.map((item) => TableRow(
-                                      decoration: const BoxDecoration(
-                                        border: Border(bottom: BorderSide(color: Color(0xFFFEF3C7), width: 0.8)),
-                                      ),
-                                      children: [
-                                        cellText(item['date']),
-                                        cellText(item['buyer'], isBold: true),
-                                        cellText(money(item['bill']), align: TextAlign.right),
-                                        cellText(money(item['paid']), align: TextAlign.right, color: const Color(0xFF047857)),
-                                        cellText(money(item['pending']), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                      ],
-                                    )),
-                                TableRow(
-                                  decoration: const BoxDecoration(color: Color(0xFFFFFBEB)),
-                                  children: [
-                                    cellText('TOTAL (${priorBills.length})', isBold: true, color: const Color(0xFF78350F)),
-                                    cellText('—', color: const Color(0xFF78350F)),
-                                    cellText(money(totalPriorBill), align: TextAlign.right, isBold: true, color: const Color(0xFF78350F)),
-                                    cellText(money(totalPriorPaid), align: TextAlign.right, isBold: true, color: const Color(0xFF047857)),
-                                    cellText(money(totalPriorPending), align: TextAlign.right, isBold: true, color: const Color(0xFFDC2626)),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
               ],
             ),
           );
