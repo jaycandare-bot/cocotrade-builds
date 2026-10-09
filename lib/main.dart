@@ -30,16 +30,24 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
+    // Only initialize if native iOS hasn't already initialized it
+    // Only initialize if native iOS hasn't already initialized it
+  if (Firebase.apps.isEmpty) {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+  }
   } catch (e) {
-    firebaseInitError = e.toString();
-    debugPrint('Firebase init error: $e');
+    // Ignore duplicate-app errors since Firebase is already running
+    if (!e.toString().contains('duplicate-app')) {
+      firebaseInitError = e.toString();
+      debugPrint('Firebase init error: $e');
+    }
   }
 
-  runApp(const MyApp());
+ runApp(const MyApp());
 }
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -51,10 +59,8 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: const Color(0xFF047857),
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
       ),
-      // Directionality & Scaffold are supplied by MaterialApp:
-      home: const MainLayoutScreen(), 
+      home: MainLayoutScreen(),
     );
   }
 }
