@@ -65,6 +65,13 @@ jobs:
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
+          if [ -f ios/Runner/GoogleService-Info.plist ]; then
+            cp ios/Runner/GoogleService-Info.plist Payload/Runner.app/
+            echo "Successfully copied GoogleService-Info.plist to Payload/Runner.app/"
+          else
+            echo "ERROR: ios/Runner/GoogleService-Info.plist is missing from the repository!"
+            exit 1
+          fi
           zip -r CocoTradeERP-iPad.ipa Payload
 
       - name: Upload iPad IPA Artifact
