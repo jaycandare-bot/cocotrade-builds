@@ -520,9 +520,10 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final bool confirm = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Text('Emergency Cloud Restore', style: TextStyle(fontWeight: FontWeight.bold)),
             content: Text(
-              'This will forcefully push all ${_trucks.length} trucks, ${_payments.length} payments, and master settings from this device into Firestore. Continue?',
+              'This will push all ${_trucks.length} trucks, ${_payments.length} payments, and master configurations from this device into Firestore. Continue?',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -592,7 +593,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Color(0xFF047857),
-            content: Text('Cloud successfully restored and resynchronized from Local Vault!'),
+            content: Text('Cloud successfully restored and synchronized from Local Vault!'),
           ),
         );
       }
@@ -12696,20 +12697,156 @@ void _showStorageSettingsDialog() {
                             ),
                           ),
 
-                          // 5. DATA & BACKUP TAB
+                          // 5. DATA & BACKUP TAB (CRASH-PROOF & FULLY BOUNDED)
                           SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Text('Sync Status: $_syncHealthStatus', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 20),
+                                // Sync Health Card
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: _syncHealthStatus == 'CONNECTED'
+                                        ? const Color(0xFFECFDF5)
+                                        : (_syncHealthStatus == 'QUEUED'
+                                            ? const Color(0xFFFFFBEB)
+                                            : const Color(0xFFFEF2F2)),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _syncHealthStatus == 'CONNECTED'
+                                          ? const Color(0xFFA7F3D0)
+                                          : (_syncHealthStatus == 'QUEUED'
+                                              ? const Color(0xFFFDE68A)
+                                              : const Color(0xFFFECACA)),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _syncHealthStatus == 'CONNECTED'
+                                              ? const Color(0xFF047857)
+                                              : (_syncHealthStatus == 'QUEUED'
+                                                  ? const Color(0xFFD97706)
+                                                  : const Color(0xFFDC2626)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Cloud Status: $_syncHealthLabel',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 13,
+                                                color: _syncHealthStatus == 'CONNECTED'
+                                                    ? const Color(0xFF065F46)
+                                                    : (_syncHealthStatus == 'QUEUED'
+                                                        ? const Color(0xFF92400E)
+                                                        : const Color(0xFF991B1B)),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Last Cloud Sync: $_lastSyncTime',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: _syncHealthStatus == 'CONNECTED'
+                                                    ? const Color(0xFF047857)
+                                                    : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+
+                                // Local Storage Vault Summary
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Row(
+                                        children: [
+                                          Icon(Icons.storage_rounded, size: 16, color: Color(0xFF047857)),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'LOCAL HARD DRIVE VAULT',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.5,
+                                              color: Color(0xFF475569),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '${_trucks.length} Trucks  •  ${_payments.length} Payments  •  ${_parties.length} Parties',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      const Text(
+                                        'Data is continuously backed up to this device\'s physical flash storage.',
+                                        style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+
+                                // Primary Cloud Restore Button
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0F172A),
+                                    minimumSize: const Size(double.infinity, 44),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.cloud_upload_rounded, size: 16),
+                                  label: const Text(
+                                    'Emergency: Restore Cloud from Local Vault',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                  ),
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _restoreCloudFromLocalVault();
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+
+                                // Export & Import Row (Properly bounded with Expanded)
                                 Row(
                                   children: [
                                     Expanded(
                                       child: FilledButton.icon(
-                                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: const Color(0xFF047857),
+                                          minimumSize: const Size(0, 42),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
                                         icon: const Icon(Icons.download_rounded, size: 16),
-                                        label: const Text('Export Backup'),
+                                        label: const Text('Export Backup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                                         onPressed: () async {
                                           final fullJson = _generateFullDatabaseJson();
                                           final encrypted = SecurityHelper.encrypt(fullJson);
@@ -12719,6 +12856,11 @@ void _showStorageSettingsDialog() {
                                           );
                                           if (savePath != null) {
                                             await File(savePath).writeAsString(encrypted, flush: true);
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Backup exported successfully!')),
+                                              );
+                                            }
                                           }
                                         },
                                       ),
@@ -12726,10 +12868,18 @@ void _showStorageSettingsDialog() {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 42),
+                                          side: const BorderSide(color: Color(0xFF047857)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
                                         icon: const Icon(Icons.file_open_rounded, size: 16, color: Color(0xFF047857)),
-                                        label: const Text('Restore Backup', style: TextStyle(color: Color(0xFF047857))),
+                                        label: const Text('Restore Backup', style: TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 12)),
                                         onPressed: () async {
-                                          final FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['secure', 'json']);
+                                          final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                                            type: FileType.custom,
+                                            allowedExtensions: ['secure', 'json'],
+                                          );
                                           if (result != null && result.files.single.path != null) {
                                             final rawContent = await File(result.files.single.path!).readAsString();
                                             Map<String, dynamic> dataToApply;
@@ -12741,22 +12891,16 @@ void _showStorageSettingsDialog() {
                                             _applyStateFromMap(dataToApply);
                                             await LocalDriveManager.writeToDrive(dataToApply);
                                             await _commitToLocalDrive();
-                                            if (mounted) Navigator.pop(ctx);
+                                            if (mounted) {
+                                              Navigator.pop(ctx);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Backup restored successfully!')),
+                                              );
+                                            }
                                           }
                                         },
                                       ),
                                     ),
-                                    const SizedBox(height: 14),
-                                  FilledButton.icon(
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xFF0F172A),
-                                      minimumSize: const Size(double.infinity, 42),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    icon: const Icon(Icons.cloud_upload_rounded, size: 16),
-                                    label: const Text('Emergency: Restore Cloud from Local Vault'),
-                                    onPressed: _restoreCloudFromLocalVault,
-                                  ),
                                   ],
                                 ),
                               ],
