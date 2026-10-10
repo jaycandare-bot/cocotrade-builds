@@ -137,43 +137,83 @@ class TruckEntry {
   String sourceSeller;
   double qty, supplierBill, buyerBill, commission, transportExp, freight, advance, rate, bags, bagRate, loadRate, insurance, amc, loadManualAmt;
   bool isInvoice, isLoadManual;
-  String updatedAt; // <-- ADD THIS
+  bool isDeleted; // <-- TOMBSTONE FLAG
+  String updatedAt;
 
   DateTime? _cachedDt;
   DateTime get parsedDate => _cachedDt ??= _MainLayoutScreenState.parseFlexibleDate(date);
 
   TruckEntry({
-    required this.id, required this.state, required this.date, required this.truck, required this.supplier, required this.buyer, required this.transporter, required this.type, required this.qty, required this.supplierBill, required this.buyerBill, required this.commission, required this.transportExp, required this.freight, required this.advance,
+    required this.id,
+    required this.state,
+    required this.date,
+    required this.truck,
+    required this.supplier,
+    required this.buyer,
+    required this.transporter,
+    required this.type,
+    required this.qty,
+    required this.supplierBill,
+    required this.buyerBill,
+    required this.commission,
+    required this.transportExp,
+    required this.freight,
+    required this.advance,
     this.sourceSeller = '',
-    this.isInvoice = false, this.invoiceNo = '', this.rate = 0, this.bags = 0, this.bagRate = 0, this.loadRate = 0, this.insurance = 0, this.amc = 0, this.isLoadManual = false, this.loadManualAmt = 0, this.remarks = '',
+    this.isInvoice = false,
+    this.invoiceNo = '',
+    this.rate = 0,
+    this.bags = 0,
+    this.bagRate = 0,
+    this.loadRate = 0,
+    this.insurance = 0,
+    this.amc = 0,
+    this.isLoadManual = false,
+    this.loadManualAmt = 0,
+    this.remarks = '',
+    this.isDeleted = false, // Default false
     String? updatedAt,
   }) : updatedAt = updatedAt ?? DateTime.now().toUtc().toIso8601String();
 
   double get balance => freight - advance;
+
   Map<String, dynamic> toJson() => {
-    'id': id, 'state': state, 'date': date, 'truck': truck, 'supplier': supplier, 'buyer': buyer, 'transporter': transporter, 'type': type, 'qty': qty, 'supplierBill': supplierBill, 'buyerBill': buyerBill, 'commission': commission, 'transportExp': transportExp, 'freight': freight, 'advance': advance,
-    'sourceSeller': sourceSeller,
-    'isInvoice': isInvoice, 'invoiceNo': invoiceNo, 'rate': rate, 'bags': bags, 'bagRate': bagRate, 'loadRate': loadRate, 'insurance': insurance, 'amc': amc, 'isLoadManual': isLoadManual, 'loadManualAmt': loadManualAmt, 'remarks': remarks,
-    'updatedAt': updatedAt, // <-- SERIALIZE
+    'id': id, 'state': state, 'date': date, 'truck': truck, 'supplier': supplier, 'buyer': buyer, 'transporter': transporter,
+    'type': type, 'qty': qty, 'supplierBill': supplierBill, 'buyerBill': buyerBill, 'commission': commission,
+    'transportExp': transportExp, 'freight': freight, 'advance': advance, 'sourceSeller': sourceSeller,
+    'isInvoice': isInvoice, 'invoiceNo': invoiceNo, 'rate': rate, 'bags': bags, 'bagRate': bagRate,
+    'loadRate': loadRate, 'insurance': insurance, 'amc': amc, 'isLoadManual': isLoadManual,
+    'loadManualAmt': loadManualAmt, 'remarks': remarks, 'isDeleted': isDeleted,
+    'updatedAt': updatedAt,
   };
+
   factory TruckEntry.fromJson(Map<String, dynamic> json) => TruckEntry(
-    id: json['id'] ?? '', state: json['state'] ?? 'Andhra Pradesh', date: json['date'] ?? '', truck: json['truck'] ?? '', supplier: json['supplier'] ?? '', buyer: json['buyer'] ?? '', transporter: json['transporter'] ?? '', type: json['type'] ?? 'TENDER', qty: (json['qty'] as num?)?.toDouble() ?? 0, supplierBill: (json['supplierBill'] as num?)?.toDouble() ?? 0, buyerBill: (json['buyerBill'] as num?)?.toDouble() ?? 0, commission: (json['commission'] as num?)?.toDouble() ?? 0, transportExp: (json['transportExp'] as num?)?.toDouble() ?? 0, freight: (json['freight'] as num?)?.toDouble() ?? 0, advance: (json['advance'] as num?)?.toDouble() ?? 0,
+    id: json['id'] ?? '', state: json['state'] ?? 'Andhra Pradesh', date: json['date'] ?? '', truck: json['truck'] ?? '',
+    supplier: json['supplier'] ?? '', buyer: json['buyer'] ?? '', transporter: json['transporter'] ?? '',
+    type: json['type'] ?? 'TENDER', qty: (json['qty'] as num?)?.toDouble() ?? 0,
+    supplierBill: (json['supplierBill'] as num?)?.toDouble() ?? 0,
+    buyerBill: (json['buyerBill'] as num?)?.toDouble() ?? 0,
+    commission: (json['commission'] as num?)?.toDouble() ?? 0,
+    transportExp: (json['transportExp'] as num?)?.toDouble() ?? 0,
+    freight: (json['freight'] as num?)?.toDouble() ?? 0,
+    advance: (json['advance'] as num?)?.toDouble() ?? 0,
     sourceSeller: json['sourceSeller'] ?? '',
-    isInvoice: json['isInvoice'] ?? false, invoiceNo: json['invoiceNo'] ?? '', rate: (json['rate'] as num?)?.toDouble() ?? 0, bags: (json['bags'] as num?)?.toDouble() ?? 0, bagRate: (json['bagRate'] as num?)?.toDouble() ?? 0, loadRate: (json['loadRate'] as num?)?.toDouble() ?? 0, insurance: (json['insurance'] as num?)?.toDouble() ?? 0, amc: (json['amc'] as num?)?.toDouble() ?? 0, isLoadManual: json['isLoadManual'] ?? false, loadManualAmt: (json['loadManualAmt'] as num?)?.toDouble() ?? 0, remarks: json['remarks'] ?? '',
+    isInvoice: json['isInvoice'] ?? false, invoiceNo: json['invoiceNo'] ?? '',
+    rate: (json['rate'] as num?)?.toDouble() ?? 0, bags: (json['bags'] as num?)?.toDouble() ?? 0,
+    bagRate: (json['bagRate'] as num?)?.toDouble() ?? 0, loadRate: (json['loadRate'] as num?)?.toDouble() ?? 0,
+    insurance: (json['insurance'] as num?)?.toDouble() ?? 0, amc: (json['amc'] as num?)?.toDouble() ?? 0,
+    isLoadManual: json['isLoadManual'] ?? false, loadManualAmt: (json['loadManualAmt'] as num?)?.toDouble() ?? 0,
+    remarks: json['remarks'] ?? '',
+    isDeleted: json['isDeleted'] ?? false,
     updatedAt: json['updatedAt'] ?? DateTime.now().toUtc().toIso8601String(),
   );
-}
-class BankAccount {
-  String id, name, account, ifsc, branch, note;
-  BankAccount({required this.id, required this.name, required this.account, required this.ifsc, required this.branch, this.note = "Please Credit to our Account only"});
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'account': account, 'ifsc': ifsc, 'branch': branch, 'note': note};
-  factory BankAccount.fromJson(Map<String, dynamic> json) => BankAccount(id: json['id'] ?? '', name: json['name'] ?? '', account: json['account'] ?? '', ifsc: json['ifsc'] ?? '', branch: json['branch'] ?? '', note: json['note'] ?? "Please Credit to our Account only");
 }
 
 class PaymentEntry {
   String id, state, type, seller, buyer, mode, date, truckId;
   double amount, transportReceived, settlement, commissionAdjusted;
-  String updatedAt; // <-- ADD THIS
+  bool isDeleted; // <-- TOMBSTONE FLAG
+  String updatedAt;
   DateTime? _cachedDt;
   DateTime get parsedDate => _cachedDt ??= _MainLayoutScreenState.parseFlexibleDate(date);
 
@@ -190,44 +230,38 @@ class PaymentEntry {
     required this.mode,
     required this.date,
     this.truckId = '',
+    this.isDeleted = false, // Default false
     String? updatedAt,
   }) : updatedAt = updatedAt ?? DateTime.now().toUtc().toIso8601String();
 
   String get party => type.contains("SELLER") ? seller : buyer;
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'state': state,
-    'type': type,
-    'seller': seller,
-    'buyer': buyer,
-    'amount': amount,
-    'transportReceived': transportReceived,
-    'settlement': settlement,
-    'commissionAdjusted': commissionAdjusted,
-    'mode': mode,
-    'date': date,
-    'truckId': truckId,
-    'updatedAt': updatedAt, // <-- SERIALIZE
+    'id': id, 'state': state, 'type': type, 'seller': seller, 'buyer': buyer, 'amount': amount,
+    'transportReceived': transportReceived, 'settlement': settlement,
+    'commissionAdjusted': commissionAdjusted, 'mode': mode, 'date': date, 'truckId': truckId,
+    'isDeleted': isDeleted,
+    'updatedAt': updatedAt,
   };
 
   factory PaymentEntry.fromJson(Map<String, dynamic> json) => PaymentEntry(
-    id: json['id'] ?? '',
-    state: json['state'] ?? 'Andhra Pradesh',
-    type: json['type'] ?? 'PAYMENT TO SELLER',
-    seller: json['seller'] ?? '',
-    buyer: json['buyer'] ?? '',
+    id: json['id'] ?? '', state: json['state'] ?? 'Andhra Pradesh',
+    type: json['type'] ?? 'PAYMENT TO SELLER', seller: json['seller'] ?? '', buyer: json['buyer'] ?? '',
     amount: (json['amount'] as num?)?.toDouble() ?? 0,
     transportReceived: (json['transportReceived'] as num?)?.toDouble() ?? 0,
     settlement: (json['settlement'] as num?)?.toDouble() ?? 0,
     commissionAdjusted: (json['commissionAdjusted'] as num?)?.toDouble() ?? 0,
-    mode: json['mode'] ?? 'DIRECT',
-    date: json['date'] ?? '',
-    truckId: json['truckId'] ?? '',
+    mode: json['mode'] ?? 'DIRECT', date: json['date'] ?? '', truckId: json['truckId'] ?? '',
+    isDeleted: json['isDeleted'] ?? false,
     updatedAt: json['updatedAt'] ?? DateTime.now().toUtc().toIso8601String(),
   );
 }
-
+class BankAccount {
+  String id, name, account, ifsc, branch, note;
+  BankAccount({required this.id, required this.name, required this.account, required this.ifsc, required this.branch, this.note = "Please Credit to our Account only"});
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'account': account, 'ifsc': ifsc, 'branch': branch, 'note': note};
+  factory BankAccount.fromJson(Map<String, dynamic> json) => BankAccount(id: json['id'] ?? '', name: json['name'] ?? '', account: json['account'] ?? '', ifsc: json['ifsc'] ?? '', branch: json['branch'] ?? '', note: json['note'] ?? "Please Credit to our Account only");
+}
 class TransportPayment {
   String id, state, transporter, bank, date, billMonth;
   double amount;
@@ -301,31 +335,56 @@ class SecurityHelper {
 }
 
 // ---------------- LOCAL STORAGE MANAGER ----------------
+// ---------------- LOCAL STORAGE MANAGER WITH SAFETY VAULT ----------------
 class LocalDriveManager {
   static const String _prefCustomDirKey = 'cocotrade_custom_dir_path';
   static const String _folderName = 'CocoTradeData';
   static const String _fileName = 'cocotrade_master_db.json';
+  static const String _vaultFileName = 'cocotrade_vault_backup.json';
 
-  static Future<File> getLocalDatabaseFile() async {
+  static Future<Directory> getStorageDirectory() async {
     final prefs = await SharedPreferences.getInstance();
     final customDir = prefs.getString(_prefCustomDirKey);
     if (customDir != null && customDir.isNotEmpty) {
       final customDirObj = Directory(customDir);
       if (!await customDirObj.exists()) await customDirObj.create(recursive: true);
-      return File('${customDirObj.path}/$_fileName');
+      return customDirObj;
     }
     final docsDir = await getApplicationDocumentsDirectory();
     final dataDir = Directory('${docsDir.path}/$_folderName');
     if (!await dataDir.exists()) await dataDir.create(recursive: true);
-    return File('${dataDir.path}/$_fileName');
+    return dataDir;
+  }
+
+  static Future<File> getLocalDatabaseFile() async {
+    final dir = await getStorageDirectory();
+    return File('${dir.path}/$_fileName');
+  }
+
+  static Future<File> getLocalVaultFile() async {
+    final dir = await getStorageDirectory();
+    return File('${dir.path}/$_vaultFileName');
   }
 
   static Future<void> writeToDrive(Map<String, dynamic> data) async {
     try {
       final file = await getLocalDatabaseFile();
+      final vaultFile = await getLocalVaultFile();
       final jsonString = jsonEncode(data);
-      // Write raw JSON directly to phone storage to guarantee cross-boot persistence
+
+      // Guard: Never write an empty dataset over an existing healthy database
+      if (data['trucks'] != null && (data['trucks'] as List).isEmpty && await file.exists()) {
+        final existing = await file.readAsString();
+        if (existing.length > 200) {
+          debugPrint("Anti-Wipe Guard: Blocked writing empty data over non-empty database.");
+          return;
+        }
+      }
+
       await file.writeAsString(jsonString, flush: true);
+
+      // Dual-write to permanent local vault
+      await vaultFile.writeAsString(jsonString, flush: true);
     } catch (e) {
       debugPrint("Local database write failed: $e");
     }
@@ -336,17 +395,18 @@ class LocalDriveManager {
       final file = await getLocalDatabaseFile();
       if (await file.exists()) {
         final content = (await file.readAsString()).trim();
-        if (content.isEmpty) return null;
-
-        if (content.startsWith('{')) {
+        if (content.isNotEmpty && content.startsWith('{')) {
           return jsonDecode(content) as Map<String, dynamic>;
         }
-        // Fallback for older encrypted test files
-        try {
-          final decrypted = SecurityHelper.decrypt(content);
-          return jsonDecode(decrypted) as Map<String, dynamic>;
-        } catch (_) {
-          return jsonDecode(content) as Map<String, dynamic>;
+      }
+
+      // Fallback: Read from Local Vault if master was touched/missing
+      final vaultFile = await getLocalVaultFile();
+      if (await vaultFile.exists()) {
+        final vaultContent = (await vaultFile.readAsString()).trim();
+        if (vaultContent.isNotEmpty && vaultContent.startsWith('{')) {
+          debugPrint("Restoring from Local Safety Vault file.");
+          return jsonDecode(vaultContent) as Map<String, dynamic>;
         }
       }
     } catch (e) {
@@ -449,7 +509,102 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       ),
     );
   }
-  
+  Future<void> _restoreCloudFromLocalVault() async {
+    if (Firebase.apps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(backgroundColor: Colors.red, content: Text('Firebase is not connected!')),
+      );
+      return;
+    }
+
+    final bool confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Emergency Cloud Restore', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Text(
+              'This will forcefully push all ${_trucks.length} trucks, ${_payments.length} payments, and master settings from this device into Firestore. Continue?',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Confirm Restore'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirm) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      WriteBatch batch = db.batch();
+      int count = 0;
+
+      Future<void> commitBatchIfNeeded() async {
+        count++;
+        if (count >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          count = 0;
+        }
+      }
+
+      // 1. Upload Master Config
+      final metaRef = db.collection('app_metadata').doc('master_config');
+      batch.set(metaRef, {
+        'companyProfile': _myCompany.toJson(),
+        'parties': _parties.map((p) => (p as dynamic).toJson()).toList(),
+        'bankAccounts': _bankAccounts.map((b) => b.toJson()).toList(),
+        'confirmations': _confirmations.map((c) => (c as dynamic).toJson()).toList(),
+        'transportPayments': _transportPayments.map((tp) => (tp as dynamic).toJson()).toList(),
+        'coconutTypes': _coconutTypes,
+        'paymentModes': _paymentModes,
+        'lastSaved': DateTime.now().toUtc().toIso8601String(),
+      }, SetOptions(merge: true));
+      await commitBatchIfNeeded();
+
+      // 2. Upload All Trucks
+      for (var t in _trucks) {
+        final truck = t as TruckEntry;
+        if (!truck.isDeleted) {
+          batch.set(db.collection('trucks').doc(truck.id), truck.toJson(), SetOptions(merge: true));
+          await commitBatchIfNeeded();
+        }
+      }
+
+      // 3. Upload All Payments
+      for (var p in _payments) {
+        final payment = p as PaymentEntry;
+        if (!payment.isDeleted) {
+          batch.set(db.collection('payments').doc(payment.id), payment.toJson(), SetOptions(merge: true));
+          await commitBatchIfNeeded();
+        }
+      }
+
+      if (count > 0) {
+        await batch.commit();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFF047857),
+            content: Text('Cloud successfully restored and resynchronized from Local Vault!'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Emergency restore failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Restore Error: $e')),
+        );
+      }
+    }
+  }
   void _showBulkPaymentAllocationDialog() {
     final bool isSeller = _payType.contains("SELLER");
     final sName = _paySeller.trim().toUpperCase();
@@ -811,7 +966,7 @@ if (pDate.isEmpty) {
   }
   void _listenToCloudFirestore() {
     if (Firebase.apps.isEmpty) {
-      debugPrint("Firebase not ready; skipping live Firestore listener.");
+      debugPrint("Firebase not ready; running in offline mode.");
       setState(() {
         _syncHealthStatus = 'QUEUED';
         _syncHealthLabel = 'Offline Mode';
@@ -820,6 +975,7 @@ if (pDate.isEmpty) {
     }
     final db = FirebaseFirestore.instance;
 
+    // 1. Metadata Stream
     _metadataSub = db.collection('app_metadata').doc('master_config').snapshots().listen((doc) {
       if (doc.exists && doc.data() != null) {
         final data = doc.data() as Map<String, dynamic>;
@@ -861,47 +1017,45 @@ if (pDate.isEmpty) {
       });
     });
 
-    // Trucks stream with conflict resolution
+    // 2. Trucks Stream (Respects tombstones, NO DESTRUCTIVE CALLS)
     _trucksSub = db.collection('trucks').snapshots().listen((snapshot) {
-      if (snapshot.docs.isNotEmpty) {
-        final Map<String, TruckEntry> currentTrucksMap = {
-          for (var t in _trucks) (t as TruckEntry).id: t
-        };
-        
-        for (var doc in snapshot.docs) {
-          final remoteData = doc.data() as Map<String, dynamic>;
-       final remoteEntry = TruckEntry.fromJson(remoteData);
+      // ANTI-WIPE GUARD: Never wipe local data if cloud returns empty
+      if (snapshot.docs.isEmpty) return;
 
-       // Hard block & cloud purge of pre-2026 or dummy opening balances
-       final isDummy = remoteEntry.type == "OPENING BALANCE" || remoteEntry.id.startsWith("OB-") || remoteEntry.truck == "OPENING BAL";
-       final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
-       if (isDummy || isPrior) {
-         _deleteDocumentFromFirestore('trucks', remoteEntry.id);
-         continue;
-       }
+      final Map<String, TruckEntry> currentTrucksMap = {
+        for (var t in _trucks) (t as TruckEntry).id: t
+      };
 
-          if (!currentTrucksMap.containsKey(remoteEntry.id)) {
-            currentTrucksMap[remoteEntry.id] = remoteEntry;
-          } else {
-            // Conflict resolution: Last-Write-Wins via UTC ISO comparison
-            final localEntry = currentTrucksMap[remoteEntry.id]!;
-            final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
-            final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
+      for (var doc in snapshot.docs) {
+        final remoteData = doc.data();
+        final remoteEntry = TruckEntry.fromJson(remoteData);
 
-            // Strictly update ONLY if remote timestamp is newer (avoids race-condition reverts)
-            if (remoteTime.isAfter(localTime)) {
-              currentTrucksMap[remoteEntry.id] = remoteEntry;
-            }
-          }
+        // Handle Tombstone Deletion across devices
+        if (remoteEntry.isDeleted) {
+          currentTrucksMap.remove(remoteEntry.id);
+          continue;
         }
 
-        setState(() {
-          _syncHealthStatus = 'CONNECTED';
-          _syncHealthLabel = 'Live Synced';
-          _trucks = currentTrucksMap.values.toList();
-          _calculateOverdueBills(_trucks);
-        });
+        if (!currentTrucksMap.containsKey(remoteEntry.id)) {
+          currentTrucksMap[remoteEntry.id] = remoteEntry;
+        } else {
+          // Last-Write-Wins via UTC comparison
+          final localEntry = currentTrucksMap[remoteEntry.id]!;
+          final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
+          final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
+
+          if (remoteTime.isAfter(localTime)) {
+            currentTrucksMap[remoteEntry.id] = remoteEntry;
+          }
+        }
       }
+
+      setState(() {
+        _syncHealthStatus = 'CONNECTED';
+        _syncHealthLabel = 'Live Synced';
+        _trucks = currentTrucksMap.values.toList();
+        _calculateOverdueBills(_trucks);
+      });
     }, onError: (e) {
       debugPrint("Firestore trucks stream error: $e");
       setState(() {
@@ -910,46 +1064,44 @@ if (pDate.isEmpty) {
       });
     });
 
-    // Payments stream with conflict resolution
+    // 3. Payments Stream (Respects tombstones, NO DESTRUCTIVE CALLS)
     _paymentsSub = db.collection('payments').snapshots().listen((snapshot) {
-      if (snapshot.docs.isNotEmpty) {
-        final Map<String, PaymentEntry> currentPaymentsMap = {
-          for (var p in _payments) (p as PaymentEntry).id: p
-        };
+      // ANTI-WIPE GUARD: Never wipe local data if cloud returns empty
+      if (snapshot.docs.isEmpty) return;
 
-        for (var doc in snapshot.docs) {
-       final remoteData = doc.data() as Map<String, dynamic>;
-       final remoteEntry = PaymentEntry.fromJson(remoteData);
+      final Map<String, PaymentEntry> currentPaymentsMap = {
+        for (var p in _payments) (p as PaymentEntry).id: p
+      };
 
-       // Hard block & cloud purge of pre-2026 or dummy payments
-       final isDummy = remoteEntry.id.startsWith("OB-") || remoteEntry.type.contains("OPENING");
-       final isPrior = parseFlexibleDate(remoteEntry.date).isBefore(DateTime(2026, 4, 1));
-       if (isDummy || isPrior) {
-         _deleteDocumentFromFirestore('payments', remoteEntry.id);
-         continue;
-       }
+      for (var doc in snapshot.docs) {
+        final remoteData = doc.data();
+        final remoteEntry = PaymentEntry.fromJson(remoteData);
 
-          if (!currentPaymentsMap.containsKey(remoteEntry.id)) {
-            currentPaymentsMap[remoteEntry.id] = remoteEntry;
-          } else {
-            final localEntry = currentPaymentsMap[remoteEntry.id]!;
-            final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
-            final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
-
-            // Strictly update ONLY if remote timestamp is newer (avoids race-condition reverts)
-            if (remoteTime.isAfter(localTime)) {
-              currentPaymentsMap[remoteEntry.id] = remoteEntry;
-            }
-          }
+        // Handle Tombstone Deletion across devices
+        if (remoteEntry.isDeleted) {
+          currentPaymentsMap.remove(remoteEntry.id);
+          continue;
         }
 
-        setState(() {
-          _syncHealthStatus = 'CONNECTED';
-          _syncHealthLabel = 'Live Synced';
-          _payments = currentPaymentsMap.values.toList();
-          _calculateOverdueBills(_trucks);
-        });
+        if (!currentPaymentsMap.containsKey(remoteEntry.id)) {
+          currentPaymentsMap[remoteEntry.id] = remoteEntry;
+        } else {
+          final localEntry = currentPaymentsMap[remoteEntry.id]!;
+          final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
+          final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
+
+          if (remoteTime.isAfter(localTime)) {
+            currentPaymentsMap[remoteEntry.id] = remoteEntry;
+          }
+        }
       }
+
+      setState(() {
+        _syncHealthStatus = 'CONNECTED';
+        _syncHealthLabel = 'Live Synced';
+        _payments = currentPaymentsMap.values.toList();
+        _calculateOverdueBills(_trucks);
+      });
     }, onError: (e) {
       debugPrint("Firestore payments stream error: $e");
       setState(() {
@@ -960,10 +1112,22 @@ if (pDate.isEmpty) {
   }
   Future<void> _deleteDocumentFromFirestore(String collection, String id) async {
     try {
-      await FirebaseFirestore.instance.collection(collection).doc(id).delete();
-      debugPrint("Deleted $collection document $id from Firestore");
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+      
+      // For trucks and payments, write a tombstone with updated timestamp
+      // This tells your iPad and PC: "This item was deleted, do not restore it"
+      if (collection == 'trucks' || collection == 'payments') {
+        await FirebaseFirestore.instance.collection(collection).doc(id).set({
+          'isDeleted': true,
+          'updatedAt': nowUtc,
+        }, SetOptions(merge: true));
+        debugPrint("Tombstone broadcasted for $collection document $id");
+      } else {
+        await FirebaseFirestore.instance.collection(collection).doc(id).delete();
+        debugPrint("Deleted $collection document $id from Firestore");
+      }
     } catch (e) {
-      debugPrint("Error deleting $collection from Firestore: $e");
+      debugPrint("Error writing tombstone/delete for $collection: $e");
     }
   }
   @override
@@ -2120,7 +2284,7 @@ _commitToLocalDrive();
                               borderRadius: BorderRadius.circular(6),
                               onTap: () {
                                 Navigator.pop(ctx);
-                                _editPaymentEntryDialog(p);
+                                _loadPaymentIntoForm(p); // Moves directly to Record Transaction form
                               },
                               child: const Padding(
                                 padding: EdgeInsets.all(5),
@@ -2410,19 +2574,7 @@ Navigator.pop(ctx);
           if (sortedPayments.isNotEmpty) ...[
             const SizedBox(width: 6),
             InkWell(
-              onTap: () {
-                if (paymentCount > 1) {
-                  _showPaymentBreakdownDialog(
-                    sortedPayments,
-                    sortedPayments.isNotEmpty ? formatDisplayDate(sortedPayments.last.date) : 'History',
-                    totalRowPaid,
-                    advanceAdjusted: advanceAdjusted,
-                    advanceAuditTrails: advanceAuditTrails,
-                  );
-                } else if (sortedPayments.isNotEmpty) {
-                  _editPaymentEntryDialog(sortedPayments.first);
-                }
-              },
+              onTap: () => _loadPaymentIntoForm(sortedPayments.first), // Moves directly to Record Transaction form
               child: const Padding(
                 padding: EdgeInsets.all(2.5),
                 child: Icon(Icons.edit_outlined, size: 14, color: Color(0xFF047857)),
@@ -2563,7 +2715,7 @@ Navigator.pop(ctx);
       debugPrint("Redo error: $e");
     }
   }
-void _loadPaymentIntoForm(PaymentEntry p) {
+    void _loadPaymentIntoForm(PaymentEntry p) {
     setState(() {
       _selectedTab = 'payments';
       _editingPaymentId = p.id;
@@ -2574,11 +2726,26 @@ void _loadPaymentIntoForm(PaymentEntry p) {
       _payTransportReceivedCtrl.text = p.transportReceived > 0 ? p.transportReceived.toStringAsFixed(0) : '0';
       _paySettlementCtrl.text = p.settlement > 0 ? p.settlement.toStringAsFixed(0) : '0';
       _payCommAdjustedCtrl.text = p.commissionAdjusted > 0 ? p.commissionAdjusted.toStringAsFixed(0) : '0';
-      _payMode = ["DIRECT", "CASH", "ICICI BANK", "KOTAK BANK", "STATE BANK OF INDIA"].contains(p.mode) ? p.mode : "DIRECT";
+      
+      // Ensure mode exists in list without resetting to default
+      final cleanMode = p.mode.trim().toUpperCase();
+      _payMode = cleanMode.isNotEmpty ? cleanMode : "DIRECT";
+      if (!_paymentModes.contains(_payMode)) {
+        _paymentModes.add(_payMode);
+      }
+
       _payDateCtrl.text = p.date;
       _paySelectedTruckId = p.truckId;
       _saveStateToHistory();
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF047857),
+        duration: const Duration(milliseconds: 1500),
+        content: Text('Loaded ${p.party.isNotEmpty ? p.party : p.type} into Record Transaction form for editing'),
+      ),
+    );
   }
 
   void _clearPaymentForm() {
@@ -3928,7 +4095,7 @@ void _updateNextInvoiceNumber() {
     final List<Map<String, dynamic>> buyerCards = [];
     final List<Map<String, dynamic>> sellerCards = [];
 
-    // --- GROUP BUYER ADVANCES (INCLUDES NORMAL ADVANCES & ON-BEHALF DEBITS) ---
+    // --- GROUP BUYER ADVANCES ---
     final Set<String> allActiveBuyers = {
       ...buyerAdvances.map((a) => a.buyer.toString().trim().toUpperCase()),
       ...curPayments.where((p) => p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER").map((p) => p.buyer.trim().toUpperCase()),
@@ -3937,27 +4104,29 @@ void _updateNextInvoiceNumber() {
     for (var buyerName in allActiveBuyers) {
       if (buyerName.isEmpty) continue;
 
-      // 1. Total unallocated advance deposits from buyer
-      final double totalDeposits = curPayments.where((p) {
-        final bool isLinkedTruck = p.truckId.toString().trim().isNotEmpty;
-        final bool isBuyerType = !p.type.toString().trim().toUpperCase().contains("SELLER");
-        return isBuyerType && !isLinkedTruck && p.buyer.trim().toUpperCase() == buyerName;
+      // 1. Total CASH & BANK payments received from buyer into YOUR hands (Excludes DIRECT to seller)
+      final double totalReceivedInHand = curPayments.where((p) {
+        final bool isBuyerReceipt = !p.type.toString().trim().toUpperCase().contains("SELLER") || p.id.endsWith("_buyer");
+        final bool isSameBuyer = p.buyer.trim().toUpperCase() == buyerName;
+        final bool isNotDirect = p.mode.trim().toUpperCase() != "DIRECT"; // Excludes direct payments to seller
+        return isBuyerReceipt && isSameBuyer && isNotDirect;
       }).fold<double>(0.0, (s, a) => s + a.amount + a.settlement);
 
-      // 2. Total money you paid to sellers on behalf of this buyer (Drawdowns)
-      final double totalPaidOutForBuyer = curPayments.where((p) {
-        final bool isSellerPayout = p.type.toString().trim().toUpperCase().contains("SELLER");
-        return isSellerPayout && p.buyer.trim().toUpperCase() == buyerName;
+      // 2. Total CASH & BANK money you actually paid to sellers on behalf of this buyer
+      final double totalDisbursedToSellers = curPayments.where((p) {
+        final bool isSellerPayout = p.type.toString().trim().toUpperCase().contains("SELLER") || p.id.endsWith("_seller");
+        final bool isSameBuyer = p.buyer.trim().toUpperCase() == buyerName;
+        final bool isNotDirect = p.mode.trim().toUpperCase() != "DIRECT";
+        return isSellerPayout && isSameBuyer && isNotDirect;
       }).fold<double>(0.0, (s, p) => s + p.amount + p.settlement + p.commissionAdjusted);
 
-      // 3. Net remaining advance pool      
-      final double netBalance = totalDeposits - totalPaidOutForBuyer;
+      // 3. Net cash advance currently sitting in your hands (undisbursed)
+      final double netCashAdvance = totalReceivedInHand - totalDisbursedToSellers;
 
-      // CHANGE THIS CONDITION: Only show buyers who actually have a positive advance credit balance
-      if (netBalance > 0.05) {
+      if (netCashAdvance > 0.05) {
         buyerCards.add({
           'name': buyerName,
-          'balance': netBalance,
+          'balance': netCashAdvance,
           'isDebit': false,
         });
       }
@@ -8107,7 +8276,7 @@ Expanded(
                         if (_editingPaymentId != null) {
                           final idx = _payments.indexWhere((x) => x.id == _editingPaymentId);
                           if (idx != -1) {
-                            _payments[idx] = PaymentEntry(
+                            final updatedPayment = PaymentEntry(
                               id: _editingPaymentId!,
                               state: _selectedState,
                               type: _payType,
@@ -8120,7 +8289,16 @@ Expanded(
                               mode: _payMode,
                               date: pDate,
                               truckId: _paySelectedTruckId,
+                              updatedAt: DateTime.now().toUtc().toIso8601String(),
                             );
+                            _payments[idx] = updatedPayment;
+
+                            if (Firebase.apps.isNotEmpty) {
+                              FirebaseFirestore.instance
+                                  .collection('payments')
+                                  .doc(updatedPayment.id)
+                                  .set(updatedPayment.toJson(), SetOptions(merge: true));
+                            }
                           }
                           _clearPaymentForm();
                         } else {
@@ -8305,7 +8483,7 @@ Expanded(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         InkWell(
-                                          onTap: () => _editPaymentEntryDialog(p),
+                                          onTap: () => _loadPaymentIntoForm(p), // Moves directly to Record Transaction form
                                           child: const Padding(
                                             padding: EdgeInsets.all(4.0),
                                             child: Icon(Icons.edit_outlined, size: 16, color: Color(0xFF047857)),
@@ -12568,6 +12746,17 @@ void _showStorageSettingsDialog() {
                                         },
                                       ),
                                     ),
+                                    const SizedBox(height: 14),
+                                  FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF0F172A),
+                                      minimumSize: const Size(double.infinity, 42),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    icon: const Icon(Icons.cloud_upload_rounded, size: 16),
+                                    label: const Text('Emergency: Restore Cloud from Local Vault'),
+                                    onPressed: _restoreCloudFromLocalVault,
+                                  ),
                                   ],
                                 ),
                               ],
