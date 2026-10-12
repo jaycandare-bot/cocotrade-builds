@@ -359,8 +359,6 @@ class SecurityHelper {
     return encrypter.decrypt(encrypted, iv: iv);
   }
 }
-
-// ---------------- LOCAL STORAGE MANAGER ----------------
 // ---------------- LOCAL STORAGE MANAGER WITH SAFETY VAULT ----------------
 class LocalDriveManager {
   static const String _prefCustomDirKey = 'cocotrade_custom_dir_path';
@@ -489,6 +487,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   String _syncHealthLabel = 'Live Synced'; 
   String _payAdjType = 'DISCOUNT'; // 'DISCOUNT' or 'SETTLEMENT'
   final _payDepositTotalCtrl = TextEditingController();
+
   Widget _buildAdjTypeChip(String type, String label) {
   final bool active = _payAdjType == type;
   return GestureDetector(
@@ -557,6 +556,61 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         ],
       ),
     );
+  }
+  Future<void> _forceCleanSyncFromCloud() async {
+    if (Firebase.apps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(backgroundColor: Colors.red, content: Text('Firebase is not connected!')),
+      );
+      return;
+    }
+
+    try {
+      final db = FirebaseFirestore.instance;
+
+      // 1. Fetch live active trucks directly from cloud
+      final trucksSnap = await db.collection('trucks').get();
+      final freshTrucks = trucksSnap.docs
+          .map((d) => TruckEntry.fromJson(d.data()))
+          .where((t) => !t.isDeleted)
+          .toList();
+
+      // 2. Fetch live active payments directly from cloud
+      final paymentsSnap = await db.collection('payments').get();
+      final freshPayments = paymentsSnap.docs
+          .map((d) => PaymentEntry.fromJson(d.data()))
+          .where((p) => !p.isDeleted)
+          .toList();
+
+      setState(() {
+        _trucks = freshTrucks;
+        _payments = freshPayments;
+        _calculateOverdueBills(_trucks);
+        _syncHealthStatus = 'CONNECTED';
+        _syncHealthLabel = 'Live Synced';
+      });
+
+      // 3. Overwrite local disk storage with clean cloud data
+      if (!kIsWeb) {
+        await LocalDriveManager.writeToDrive(_exportStateMap());
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF047857),
+            content: Text('Cleaned! Synced ${freshPayments.length} payments and ${freshTrucks.length} trucks.'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Force sync error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Sync Error: $e')),
+        );
+      }
+    }
   }
   Future<void> _restoreCloudFromLocalVault() async {
     if (Firebase.apps.isEmpty) {
@@ -13384,34 +13438,32 @@ void _showStorageSettingsDialog() {
                                     ],
                                   ),
                                 ),
-                                const SizedBox(height: 18),
-
-                                // Primary Cloud Restore Button
+                                const SizedBox(height: 18),                               
+                                // Force Clean Sync Button (Eliminates zombie/ghost records in 1 tap)
                                 FilledButton.icon(
                                   style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF0F172A),
-                                    minimumSize: const Size(double.infinity, 44),
+                                    backgroundColor: const Color(0xFF047857),
+                                    minimumSize: const Size(double.infinity, 42),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
-                                  icon: const Icon(Icons.cloud_upload_rounded, size: 16),
+                                  icon: const Icon(Icons.sync_rounded, size: 16),
                                   label: const Text(
-                                    'Emergency: Restore Cloud from Local Vault',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                    'Force Clean Resync from Cloud (Purge Ghost Records)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                                   ),
                                   onPressed: () {
                                     Navigator.pop(ctx);
-                                    _restoreCloudFromLocalVault();
+                                    _forceCleanSyncFromCloud();
                                   },
                                 ),
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 10),
 
-                                // Export & Import Row (Properly bounded with Expanded)
+                                // Export & Import Row (Using FileType.any so Android never grays out files)
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: FilledButton.icon(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: const Color(0xFF047857),
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
                                           minimumSize: const Size(0, 42),
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                         ),
@@ -13422,7 +13474,7 @@ void _showStorageSettingsDialog() {
                                           final encrypted = SecurityHelper.encrypt(fullJson);
                                           final String? savePath = await FilePicker.platform.saveFile(
                                             dialogTitle: 'Save Backup',
-                                            fileName: 'cocotrade_backup.secure',
+                                            fileName: 'cocotrade_backup.json', // .json is natively supported on all platforms
                                           );
                                           if (savePath != null) {
                                             await File(savePath).writeAsString(encrypted, flush: true);
@@ -13446,9 +13498,9 @@ void _showStorageSettingsDialog() {
                                         icon: const Icon(Icons.file_open_rounded, size: 16, color: Color(0xFF047857)),
                                         label: const Text('Restore Backup', style: TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 12)),
                                         onPressed: () async {
+                                          // FileType.any allows tapping any file on Android without grey-out
                                           final FilePickerResult? result = await FilePicker.platform.pickFiles(
-                                            type: FileType.custom,
-                                            allowedExtensions: ['secure', 'json'],
+                                            type: FileType.any,
                                           );
                                           if (result != null && result.files.single.path != null) {
                                             final rawContent = await File(result.files.single.path!).readAsString();
