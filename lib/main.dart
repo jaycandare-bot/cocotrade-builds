@@ -210,51 +210,77 @@ class TruckEntry {
 }
 
 class PaymentEntry {
-  String id, state, type, seller, buyer, mode, date, truckId;
-  double amount, transportReceived, settlement, commissionAdjusted;
-  bool isDeleted; // <-- TOMBSTONE FLAG
-  String updatedAt;
-  DateTime? _cachedDt;
-  DateTime get parsedDate => _cachedDt ??= _MainLayoutScreenState.parseFlexibleDate(date);
+String id, state, type, seller, buyer, mode, date, truckId;
+double amount, transportReceived, settlement, commissionAdjusted;
+double depositTotal; // <-- Tracks the original lump-sum remittance (e.g. 98,000)
+String remarks;      // <-- Optional audit trail
+String adjType;
+bool isDeleted;
+String updatedAt;
+DateTime? _cachedDt;
+DateTime get parsedDate => _cachedDt ??= _MainLayoutScreenState.parseFlexibleDate(date);
 
-  PaymentEntry({
-    required this.id,
-    required this.state,
-    required this.type,
-    required this.seller,
-    required this.buyer,
-    required this.amount,
-    required this.transportReceived,
-    required this.settlement,
-    this.commissionAdjusted = 0.0,
-    required this.mode,
-    required this.date,
-    this.truckId = '',
-    this.isDeleted = false, // Default false
-    String? updatedAt,
-  }) : updatedAt = updatedAt ?? DateTime.now().toUtc().toIso8601String();
+PaymentEntry({
+required this.id,
+required this.state,
+required this.type,
+required this.seller,
+required this.buyer,
+required this.amount,
+required this.transportReceived,
+required this.settlement,
+this.commissionAdjusted = 0.0,
+this.depositTotal = 0.0,
+this.remarks = '',
+this.adjType = 'DISCOUNT',
+required this.mode,
+required this.date,
+this.truckId = '',
+this.isDeleted = false,
+String? updatedAt,
+}) : updatedAt = updatedAt ?? DateTime.now().toUtc().toIso8601String();
 
-  String get party => type.contains("SELLER") ? seller : buyer;
+String get party => type.contains("SELLER") ? seller : buyer;
 
-  Map<String, dynamic> toJson() => {
-    'id': id, 'state': state, 'type': type, 'seller': seller, 'buyer': buyer, 'amount': amount,
-    'transportReceived': transportReceived, 'settlement': settlement,
-    'commissionAdjusted': commissionAdjusted, 'mode': mode, 'date': date, 'truckId': truckId,
-    'isDeleted': isDeleted,
-    'updatedAt': updatedAt,
-  };
+Map<String, dynamic> toJson() => {
+'id': id,
+'state': state,
+'type': type,
+'seller': seller,
+'buyer': buyer,
+'amount': amount,
+'transportReceived': transportReceived,
+'settlement': settlement,
+'commissionAdjusted': commissionAdjusted,
+'depositTotal': depositTotal,
+'remarks': remarks,
+'adjType': adjType,
+'mode': mode,
+'date': date,
+'truckId': truckId,
+'isDeleted': isDeleted,
+'updatedAt': updatedAt,
+};
 
-  factory PaymentEntry.fromJson(Map<String, dynamic> json) => PaymentEntry(
-    id: json['id'] ?? '', state: json['state'] ?? 'Andhra Pradesh',
-    type: json['type'] ?? 'PAYMENT TO SELLER', seller: json['seller'] ?? '', buyer: json['buyer'] ?? '',
-    amount: (json['amount'] as num?)?.toDouble() ?? 0,
-    transportReceived: (json['transportReceived'] as num?)?.toDouble() ?? 0,
-    settlement: (json['settlement'] as num?)?.toDouble() ?? 0,
-    commissionAdjusted: (json['commissionAdjusted'] as num?)?.toDouble() ?? 0,
-    mode: json['mode'] ?? 'DIRECT', date: json['date'] ?? '', truckId: json['truckId'] ?? '',
-    isDeleted: json['isDeleted'] ?? false,
-    updatedAt: json['updatedAt'] ?? DateTime.now().toUtc().toIso8601String(),
-  );
+factory PaymentEntry.fromJson(Map<String, dynamic> json) => PaymentEntry(
+id: json['id'] ?? '',
+state: json['state'] ?? 'Andhra Pradesh',
+type: json['type'] ?? 'PAYMENT TO SELLER',
+seller: json['seller'] ?? '',
+buyer: json['buyer'] ?? '',
+amount: (json['amount'] as num?)?.toDouble() ?? 0,
+transportReceived: (json['transportReceived'] as num?)?.toDouble() ?? 0,
+settlement: (json['settlement'] as num?)?.toDouble() ?? 0,
+commissionAdjusted: (json['commissionAdjusted'] as num?)?.toDouble() ?? 0,
+depositTotal: (json['depositTotal'] as num?)?.toDouble() ?? 0.0,
+remarks: json['remarks'] ?? '',
+adjType: json['adjType'] ?? 'DISCOUNT',
+mode: json['mode'] ?? 'DIRECT',
+date: json['date'] ?? '',
+truckId: json['truckId'] ?? '',
+isDeleted: json['isDeleted'] ?? false,
+updatedAt: json['updatedAt'] ?? DateTime.now().toUtc().toIso8601String(),
+);
 }
 class BankAccount {
   String id, name, account, ifsc, branch, note;
@@ -451,7 +477,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   static const String _prefIsLicensedKey = 'auth_is_licensed_v1';
   static const String _prefLicenseKeyString = 'auth_license_key_string';
   static String getFYFromDate(String dateStr) {
-  final dt = parseFlexibleDate(dateStr);
+  final dt = parseFlexibleDate(dateStr);  
   // In Indian accounting, April to March defines the financial year
   final int startYear = dt.month >= 4 ? dt.year : dt.year - 1;
   return "$startYear-${startYear + 1}";
@@ -460,7 +486,30 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   StreamSubscription<QuerySnapshot>? _paymentsSub;
   StreamSubscription<DocumentSnapshot>? _metadataSub;
   String _syncHealthStatus = 'CONNECTED'; // 'CONNECTED', 'QUEUED', 'ERROR'
-  String _syncHealthLabel = 'Live Synced';  
+  String _syncHealthLabel = 'Live Synced'; 
+  String _payAdjType = 'DISCOUNT'; // 'DISCOUNT' or 'SETTLEMENT'
+  final _payDepositTotalCtrl = TextEditingController();
+  Widget _buildAdjTypeChip(String type, String label) {
+  final bool active = _payAdjType == type;
+  return GestureDetector(
+    onTap: () => setState(() => _payAdjType = type),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFF047857) : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: active ? Colors.white : const Color(0xFF64748B),
+        ),
+      ),
+    ),
+  );
+} 
   Widget _buildSyncHealthBadge() {
     Color dotColor;
     String label;
@@ -624,38 +673,71 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final dateCtrl = TextEditingController(text: formatDisplayDate(DateTime.now().toIso8601String()));
     String mode = _payMode;
 
-    // Retrieve open trucks for this party
-    final openTrucks = _trucks.where((t) {
-      final matchState = t.state == _selectedState;
-      final matchParty = isSeller
-          ? (t.supplier.toString().trim().toUpperCase() == partyName)
-          : (t.buyer.toString().trim().toUpperCase() == partyName);
-      final double bill = isSeller ? (t.supplierBill as num).toDouble() : (t.buyerBill > 0 ? t.buyerBill : t.supplierBill).toDouble();
-      return matchState && matchParty && bill > 0;
+    List<Map<String, dynamic>> candidateAllocations = [];
+
+if (!isSeller) {
+  // 1. FOR BUYER: Use the statement calculator so dues match your Buyer Statement exactly
+  final buyerRows = _computeBuyerStatementRows(
+    stateName: _selectedState,
+    buyerName: partyName,
+  );
+
+  for (var r in buyerRows) {
+    final double bal = (r['rawBalance'] as num).toDouble();
+    if (bal > 0.05) {
+      candidateAllocations.add({
+        'truck': r['truck'],
+        'bill': (r['billAmount'] as num).toDouble(),
+        'due': bal,
+        'allocated': 0.0,
+        'ctrl': TextEditingController(text: '0'),
+        'selected': true,
+      });
+    }
+  }
+} else {
+  // 2. FOR SELLER: Only deduct disbursements made to this seller
+  final openTrucks = _trucks.where((t) {
+    if (t.isDeleted == true) return false;
+    final matchState = t.state == _selectedState;
+    final matchParty = t.supplier.toString().trim().toUpperCase() == partyName;
+    final bool isRealTruck = t.type != "OPENING BALANCE" &&
+        !t.id.toString().startsWith("OB-") &&
+        t.truck != "OPENING BAL";
+    final double bill = (t.supplierBill as num).toDouble();
+    return matchState && matchParty && isRealTruck && bill > 0;
+  }).toList();
+
+  for (var t in openTrucks) {
+    final double bill = (t.supplierBill as num).toDouble();
+    final matchedPayments = _payments.where((p) {
+      if (p.isDeleted == true) return false;
+      if (p.state != _selectedState) return false;
+      if (p.truckId.trim() != t.id.trim()) return false;
+      final matchSeller = p.seller.trim().toUpperCase() == partyName;
+      final isSellerPay = p.type.toUpperCase().contains("SELLER") || p.mode == "DIRECT";
+      return matchSeller && isSellerPay;
     }).toList();
 
-    // Map each truck to its remaining due
-    List<Map<String, dynamic>> candidateAllocations = [];
-    for (var t in openTrucks) {
-      final double bill = isSeller ? (t.supplierBill as num).toDouble() : (t.buyerBill > 0 ? t.buyerBill : t.supplierBill).toDouble();
-      final double alreadyPaid = _payments.where((p) => p.state == _selectedState && p.truckId.trim() == t.id.trim()).fold<double>(
-        0.0,
-        (sum, p) => sum + p.amount + p.settlement + p.commissionAdjusted,
-      );
-      final double remainingDue = (bill - alreadyPaid).clamp(0.0, double.infinity);
-      if (remainingDue > 0.05) {
-        candidateAllocations.add({
-          'truck': t,
-          'bill': bill,
-          'due': remainingDue,
-          'allocated': 0.0,
-          'ctrl': TextEditingController(text: '0'),
-          'selected': true,
-        });
-      }
+    final double alreadyPaid = matchedPayments.fold<double>(
+      0.0,
+      (sum, p) => sum + p.amount + p.settlement + p.commissionAdjusted,
+    );
+    final double remainingDue = (bill - alreadyPaid).clamp(0.0, double.infinity);
+    if (remainingDue > 0.05) {
+      candidateAllocations.add({
+        'truck': t,
+        'bill': bill,
+        'due': remainingDue,
+        'allocated': 0.0,
+        'ctrl': TextEditingController(text: '0'),
+        'selected': true,
+      });
     }
+  }
+}
 
-    candidateAllocations.sort((a, b) => _MainLayoutScreenState.parseFlexibleDate(a['truck'].date).compareTo(_MainLayoutScreenState.parseFlexibleDate(b['truck'].date)));
+candidateAllocations.sort((a, b) => _MainLayoutScreenState.parseFlexibleDate(a['truck'].date).compareTo(_MainLayoutScreenState.parseFlexibleDate(b['truck'].date)));
 
     showDialog(
       context: context,
@@ -893,12 +975,12 @@ if (pDate.isEmpty) {
                     String buyerPayType = 'PAYMENT IN';
                     try { sellerPayType = _payments.firstWhere((p) => p.seller.isNotEmpty && p.buyer.isEmpty).type; } catch (_) {}
                     try { buyerPayType = _payments.firstWhere((p) => p.buyer.isNotEmpty && p.seller.isEmpty).type; } catch (_) {}
+                    final double lumpSumTotal = parseMathExpression(totalDepositCtrl.text);
 
                     for (var item in candidateAllocations) {
                       double alloc = double.tryParse(item['ctrl'].text) ?? 0.0;
                       if (alloc > 0) {
-                        // Original Entry
-                        _payments.add(PaymentEntry(
+                        final primaryEntry = PaymentEntry(
                           id: '${nowMs}_bulk_${entriesCreated++}',
                           state: _selectedState,
                           type: _payType,
@@ -910,23 +992,43 @@ if (pDate.isEmpty) {
                           mode: mode,
                           date: pDate,
                           truckId: item['truck'].id,
-                        ));
+                          depositTotal: lumpSumTotal > 0 && lumpSumTotal != alloc ? lumpSumTotal : 0.0,
+                          updatedAt: DateTime.now().toUtc().toIso8601String(),
+                        );
+                        _payments.add(primaryEntry);
 
-                        // FIX 2: Dual-Entry Mirror for DIRECT Payments
+                        if (Firebase.apps.isNotEmpty) {
+                          FirebaseFirestore.instance
+                              .collection('payments')
+                              .doc(primaryEntry.id)
+                              .set(primaryEntry.toJson(), SetOptions(merge: true));
+                        }
+
+                        // Dual-Entry Mirror for DIRECT Payments
                         if (mode == 'DIRECT') {
-                          _payments.add(PaymentEntry(
+                          final mirrorEntry = PaymentEntry(
                             id: '${nowMs}_bulk_${entriesCreated++}_mirror',
                             state: _selectedState,
-                            type: isSeller ? buyerPayType : sellerPayType, 
+                            type: isSeller ? buyerPayType : sellerPayType,
                             seller: isSeller ? '' : item['truck'].supplier,
                             buyer: isSeller ? item['truck'].buyer : '',
                             amount: alloc,
                             transportReceived: 0,
                             settlement: 0,
-                            mode: mode, // Must remain exactly 'DIRECT' to pass filters
+                            mode: mode,
                             date: pDate,
                             truckId: item['truck'].id,
-                          ));
+                            depositTotal: lumpSumTotal > 0 && lumpSumTotal != alloc ? lumpSumTotal : 0.0,
+                            updatedAt: DateTime.now().toUtc().toIso8601String(),
+                          );
+                          _payments.add(mirrorEntry);
+
+                          if (Firebase.apps.isNotEmpty) {
+                            FirebaseFirestore.instance
+                                .collection('payments')
+                                .doc(mirrorEntry.id)
+                                .set(mirrorEntry.toJson(), SetOptions(merge: true));
+                          }
                         }
                       }
                     }
@@ -2232,17 +2334,22 @@ _commitToLocalDrive();
                       // FEATURE 7: Clean formatting for zero-amount discount
                       String displayAmt;
                       String subtitleText;
-                      if (p.amount <= 0 && p.settlement > 0) {
-                        displayAmt = 'Disc ${money(p.settlement)}';
-                        subtitleText = '$pDate • SETTLEMENT / DISCOUNT';
+                      final String adjLabel = p.adjType == 'SETTLEMENT' ? 'Settled' : 'Disc';
+                      final String adjUpper = p.adjType == 'SETTLEMENT' ? 'SETTLEMENT' : 'DISCOUNT';
+
+                      if (p.depositTotal > 0 && p.depositTotal != p.amount) {
+                        displayAmt = money(p.amount);
+                        subtitleText = '$pDate • ${p.mode} • Paid of ${money(p.depositTotal)} adj. ${money(p.amount)}';
+                      } else if (p.amount <= 0 && p.settlement > 0) {
+                        displayAmt = '$adjLabel ${money(p.settlement)}';
+                        subtitleText = '$pDate • $adjUpper';
                       } else if (p.amount > 0 && p.settlement > 0) {
                         displayAmt = money(p.amount);
-                        subtitleText = '$pDate • ${p.mode} + Disc ${money(p.settlement)}';
+                        subtitleText = '$pDate • ${p.mode} + $adjLabel ${money(p.settlement)}';
                       } else {
                         displayAmt = money(p.amount);
                         subtitleText = '$pDate • ${p.mode}';
                       }
-
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         decoration: const BoxDecoration(
@@ -2429,19 +2536,29 @@ Navigator.pop(ctx);
     final bool isMultiSplit = paymentCount > 1;
 
     // Single payment summary text with zero-amount discount support (Feature 7)
-    String mainText;
-    if (!isMultiSplit && sortedPayments.isNotEmpty) {
-      final p = sortedPayments.first;
-      if (p.amount <= 0 && p.settlement > 0) {
-        mainText = 'Disc ${money(p.settlement)} on ${formatDisplayDate(p.date)}';
-      } else {
-        mainText = '${money(p.amount)} (${p.mode}) on ${formatDisplayDate(p.date)}';
-      }
-    } else if (!isMultiSplit && advanceAdjusted > 0) {
-      mainText = 'Adv Adj: ${money(advanceAdjusted)}';
-    } else {
-      mainText = '${money(totalRowPaid)} ($paymentCount Payments)';
-    }
+    // Single payment summary text with dynamic Discount vs Settlement support
+    // Single payment summary text with lump-sum adjustment support
+String mainText;
+if (!isMultiSplit && sortedPayments.isNotEmpty) {
+  final p = sortedPayments.first;
+  final String adjLabel = p.adjType == 'SETTLEMENT' ? 'Settled' : 'Disc';
+  final pDt = formatDisplayDate(p.date);
+
+  if (p.depositTotal > 0 && p.depositTotal > p.amount) {
+    // Formats as: Paid dt. 30-09-26 of ₹98,000 adj. ₹82,000
+    mainText = 'Paid dt. $pDt of ${money(p.depositTotal)} adj. ${money(p.amount)} (${p.mode})';
+  } else if (p.amount <= 0 && p.settlement > 0) {
+    mainText = '$adjLabel ${money(p.settlement)} on $pDt';
+  } else if (p.amount > 0 && p.settlement > 0) {
+    mainText = '${money(p.amount)} (${p.mode}) + $adjLabel ${money(p.settlement)} on $pDt';
+  } else {
+    mainText = '${money(p.amount)} (${p.mode}) on $pDt';
+  }
+} else if (!isMultiSplit && advanceAdjusted > 0) {
+  mainText = 'Adv Adj: ${money(advanceAdjusted)}';
+} else {
+  mainText = '${money(totalRowPaid)} ($paymentCount Payments)';
+}
 
     // Build Excel Yellow Note Lines
     final List<InlineSpan> noteLines = [
@@ -2453,26 +2570,27 @@ Navigator.pop(ctx);
     ];
 
     for (int i = 0; i < sortedPayments.length; i++) {
-      final p = sortedPayments[i];
-      final dt = formatDisplayDate(p.date);
+  final p = sortedPayments[i];
+  final dt = formatDisplayDate(p.date);
+  final String adjLabel = p.adjType == 'SETTLEMENT' ? 'Settled' : 'Disc';
+  String pDesc;
+  if (p.depositTotal > 0 && p.depositTotal > p.amount) {
+    pDesc = 'Paid of ${money(p.depositTotal)} (${p.mode}) adj. ${money(p.amount)}';
+  } else if (p.amount <= 0 && p.settlement > 0) {
+    pDesc = '$adjLabel ${money(p.settlement)}';
+  } else if (p.amount > 0 && p.settlement > 0) {
+    pDesc = '${money(p.amount)} (${p.mode}) + $adjLabel ${money(p.settlement)}';
+  } else {
+    pDesc = '${money(p.amount)} (${p.mode})';
+  }
 
-      // FEATURE 7: Output Disc directly if principal amount is 0
-      String pDesc;
-      if (p.amount <= 0 && p.settlement > 0) {
-        pDesc = 'Disc ${money(p.settlement)}';
-      } else if (p.amount > 0 && p.settlement > 0) {
-        pDesc = '${money(p.amount)} (${p.mode}) + Disc ${money(p.settlement)}';
-      } else {
-        pDesc = '${money(p.amount)} (${p.mode})';
-      }
-
-      noteLines.add(
-        TextSpan(
-          text: '${i + 1}. $dt: $pDesc\n',
-          style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF451A03), fontSize: 11),
-        ),
-      );
-    }
+  noteLines.add(
+    TextSpan(
+      text: '${i + 1}. $dt: $pDesc\n',
+      style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF451A03), fontSize: 11),
+    ),
+  );
+}
 
     // FEATURE 4: Advance Drawdown entry in yellow note
     if (advanceAdjusted > 0) {
@@ -2717,50 +2835,45 @@ Navigator.pop(ctx);
     }
   }
     void _loadPaymentIntoForm(PaymentEntry p) {
-    setState(() {
-      _selectedTab = 'payments';
-      _editingPaymentId = p.id;
-      _payType = p.type;
-      _paySeller = p.seller;
-      _payBuyer = p.buyer;
-      _payAmountCtrl.text = p.amount > 0 ? p.amount.toStringAsFixed(0) : '0';
-      _payTransportReceivedCtrl.text = p.transportReceived > 0 ? p.transportReceived.toStringAsFixed(0) : '0';
-      _paySettlementCtrl.text = p.settlement > 0 ? p.settlement.toStringAsFixed(0) : '0';
-      _payCommAdjustedCtrl.text = p.commissionAdjusted > 0 ? p.commissionAdjusted.toStringAsFixed(0) : '0';
-      
-      // Ensure mode exists in list without resetting to default
-      final cleanMode = p.mode.trim().toUpperCase();
-      _payMode = cleanMode.isNotEmpty ? cleanMode : "DIRECT";
-      if (!_paymentModes.contains(_payMode)) {
-        _paymentModes.add(_payMode);
-      }
+  setState(() {
+    _selectedTab = 'payments';
+    _editingPaymentId = p.id;
+    _payType = p.type;
+    _paySeller = p.seller;
+    _payBuyer = p.buyer;
+    _payAmountCtrl.text = p.amount > 0 ? p.amount.toStringAsFixed(0) : '0';
+    _payTransportReceivedCtrl.text = p.transportReceived > 0 ? p.transportReceived.toStringAsFixed(0) : '0';
+    _paySettlementCtrl.text = p.settlement > 0 ? p.settlement.toStringAsFixed(0) : '0';
+    _payCommAdjustedCtrl.text = p.commissionAdjusted > 0 ? p.commissionAdjusted.toStringAsFixed(0) : '0';
+    _payAdjType = p.adjType; // <-- Loads whether it was Discount or Settlement
+    _payDepositTotalCtrl.text = p.depositTotal > 0 ? p.depositTotal.toStringAsFixed(0) : '';
 
-      _payDateCtrl.text = p.date;
-      _paySelectedTruckId = p.truckId;
-      _saveStateToHistory();
-    });
+    final cleanMode = p.mode.trim().toUpperCase();
+    _payMode = cleanMode.isNotEmpty ? cleanMode : "DIRECT";
+    if (!_paymentModes.contains(_payMode)) {
+      _paymentModes.add(_payMode);
+    }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: const Color(0xFF047857),
-        duration: const Duration(milliseconds: 1500),
-        content: Text('Loaded ${p.party.isNotEmpty ? p.party : p.type} into Record Transaction form for editing'),
-      ),
-    );
-  }
+    _payDateCtrl.text = p.date;
+    _paySelectedTruckId = p.truckId;
+    _saveStateToHistory();
+  });
+}
 
-  void _clearPaymentForm() {
-    setState(() {
-      _editingPaymentId = null;
-      _payAmountCtrl.clear();
-      _payTransportReceivedCtrl.text = "0";
-      _paySettlementCtrl.text = "0";
-      _payCommAdjustedCtrl.text = "0";
-      _paySeller = "";
-      _payBuyer = "";
-      _paySelectedTruckId = "";
-    });
-  }
+void _clearPaymentForm() {
+  setState(() {
+    _editingPaymentId = null;
+    _payAmountCtrl.clear();
+    _payTransportReceivedCtrl.text = "0";
+    _paySettlementCtrl.text = "0";
+    _payCommAdjustedCtrl.text = "0";
+    _payAdjType = 'DISCOUNT'; // Reset to default
+    _paySeller = "";
+    _payBuyer = "";
+    _paySelectedTruckId = "";
+    _payDepositTotalCtrl.clear();
+  });
+}
   
  @override
 void initState() {
@@ -4398,263 +4511,516 @@ void _updateNextInvoiceNumber() {
       ),
     );
   }
- // ---------------- MODERN BENTO DASHBOARD VIEW ----------------
-  Widget _buildDashboardView() {
-    final curConfirmations = _confirmations.where((c) => c.status == 'PENDING').toList();
+  // ---------------- DASHBOARD PAID ON BEHALF CARD ----------------
+  Widget _buildDashboardPaidOnBehalfCard() {
+    // 1. Gather all unique buyers who have active records in the current state & FY
+    final Set<String> activeBuyers = {
+      ..._buyerNames,
+      ..._trucks
+          .where((t) => t.state == _selectedState && _isDateInFY(t.date, _selectedFinancialYear))
+          .map((t) => t.buyer.toString().trim().toUpperCase()),
+    };
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 1. ACTIVE ADVANCES AT THE VERY TOP
-        _buildDashboardAdvancesCard(),
+    final List<Map<String, dynamic>> paidOnBehalfGroups = [];
 
-       // 2. TWO INTERACTIVE ACTION CARDS (MUTUALLY EXCLUSIVE TOGGLE)
-        isMobile
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    for (var bName in activeBuyers) {
+      if (bName.isEmpty || bName == 'SELECT BUYER') continue;
+      final items = _getBuyerPaidOnBehalfItems(bName);
+      if (items.isNotEmpty) {
+        final double totalOwed = items.fold<double>(
+          0.0,
+          (sum, it) => sum + (it['balanceOwed'] as num).toDouble(),
+        );
+        if (totalOwed > 0.05) {
+          paidOnBehalfGroups.add({
+            'buyer': bName,
+            'totalOwed': totalOwed,
+            'items': items,
+          });
+        }
+      }
+    }
+
+    // Sort by largest balance owed first
+    paidOnBehalfGroups.sort(
+      (a, b) => (b['totalOwed'] as double).compareTo(a['totalOwed'] as double),
+    );
+
+    // If no one owes money paid on their behalf, keep dashboard clean
+    if (paidOnBehalfGroups.isEmpty) return const SizedBox.shrink();
+
+    final double grandTotalOwed = paidOnBehalfGroups.fold<double>(
+      0.0,
+      (sum, g) => sum + (g['totalOwed'] as double),
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFECACA), width: 1.2),
+        boxShadow: const [
+          BoxShadow(color: Color(0x08DC2626), blurRadius: 12, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header Bar
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
                 children: [
-                  _dashboardActionCard(
-                    label: 'Quick Trade',
-                    value: curConfirmations.isNotEmpty ? '${curConfirmations.length} Pending' : 'Create Trade',
-                    subtitle: _dashShowQuickTrade ? 'Tap to hide' : 'Trade & Dispatch Desk',
-                    icon: Icons.bolt_rounded,
-                    accentColor: const Color(0xFF047857),
-                    bgColor: const Color(0xFFECFDF5),
-                    isActive: _dashShowQuickTrade,
-                    onTap: () => setState(() {
-                      _dashShowQuickTrade = !_dashShowQuickTrade;
-                      if (_dashShowQuickTrade) _dashShowOverdue = false;
-                    }),
-                  ),
-                  const SizedBox(height: 10),
-                  _dashboardActionCard(
-                    label: 'Overdue Bills',
-                    value: '${_overdueBills.length} Invoices',
-                    subtitle: _dashShowOverdue ? 'Tap to hide' : 'Awaiting Settlement > 10 Days',
-                    icon: Icons.warning_amber_rounded,
-                    accentColor: const Color(0xFFEF4444),
-                    bgColor: const Color(0xFFFEF2F2),
-                    isActive: _dashShowOverdue,
-                    onTap: () => setState(() {
-                      _dashShowOverdue = !_dashShowOverdue;
-                      if (_dashShowOverdue) _dashShowQuickTrade = false;
-                    }),
-                  ),
-                ],
-              )
-            : Row(
-                children: [
-                  Expanded(
-                    child: _dashboardActionCard(
-                      label: 'Quick Trade',
-                      value: curConfirmations.isNotEmpty ? '${curConfirmations.length} Pending' : 'Create Trade',
-                      subtitle: _dashShowQuickTrade ? 'Click to hide desk' : 'Trade Desk & Dispatch',
-                      icon: Icons.bolt_rounded,
-                      accentColor: const Color(0xFF047857),
-                      bgColor: const Color(0xFFECFDF5),
-                      isActive: _dashShowQuickTrade,
-                      onTap: () => setState(() {
-                        _dashShowQuickTrade = !_dashShowQuickTrade;
-                        if (_dashShowQuickTrade) _dashShowOverdue = false;
-                      }),
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.assignment_return_outlined,
+                      size: 16,
+                      color: Color(0xFFDC2626),
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _dashboardActionCard(
-                      label: 'Overdue Invoices',
-                      value: '${_overdueBills.length} Invoices',
-                      subtitle: _dashShowOverdue ? 'Click to hide' : 'Awaiting Settlement > 10 Days',
-                      icon: Icons.warning_amber_rounded,
-                      accentColor: const Color(0xFFEF4444),
-                      bgColor: const Color(0xFFFEF2F2),
-                      isActive: _dashShowOverdue,
-                      onTap: () => setState(() {
-                        _dashShowOverdue = !_dashShowOverdue;
-                        if (_dashShowOverdue) _dashShowQuickTrade = false;
-                      }),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'PAID ON BEHALF (RECEIVABLE)',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF991B1B),
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ],
               ),
-        const SizedBox(height: 18),
-
-        // 3. QUICK TRADE CONSOLE & PENDING TRADES (OVERFLOW-PROOF)
-        if (_dashShowQuickTrade) ...[
-          Container(
-            padding: EdgeInsets.all(isMobile ? 14 : 20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFF047857).withOpacity(0.35), width: 1.5),
-              boxShadow: const [BoxShadow(color: Color(0x06000000), blurRadius: 16, offset: Offset(0, 6))],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.bolt_rounded, color: Color(0xFF047857), size: 22),
-                        SizedBox(width: 8),
-                        Text(
-                          'Quick Trade Confirmation',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), letterSpacing: -0.3),
-                        ),
-                      ],
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFECACA)),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
-                      tooltip: 'Close Quick Trade',
-                      onPressed: () => setState(() => _dashShowQuickTrade = false),
+                    child: Text(
+                      'Total: ${money(grandTotalOwed)}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Text(
+                      '${paidOnBehalfGroups.length} ${paidOnBehalfGroups.length == 1 ? "Party" : "Parties"}',
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Items Grid / List
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final bool isWide = constraints.maxWidth >= 700;
+
+              Widget buildItemCard(Map<String, dynamic> group) {
+                final String bName = group['buyer'] as String;
+                final double owed = group['totalOwed'] as double;
+                final List<Map<String, dynamic>> items =
+                    group['items'] as List<Map<String, dynamic>>;
+
+                final String subtitle = items.length == 1
+                    ? 'Paid to ${items.first['seller']} on ${items.first['date']}'
+                    : '${items.length} Consignments (${items.map((i) => i['seller']).toSet().join(', ')})';
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF5F5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFECACA), width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFEF4444).withOpacity(0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              bName,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF0F172A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF991B1B),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '-${money(owed)}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFDC2626),
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonal(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFEE2E2),
+                          foregroundColor: const Color(0xFF991B1B),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          minimumSize: const Size(0, 30),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        onPressed: () {
+                          if (items.length == 1) {
+                            _settleBuyerPaidOnBehalfDialog(items.first);
+                          } else {
+                            _settleBuyerPaidOnBehalfDialog(bName, owed);
+                          }
+                        },
+                        child: const Text(
+                          'Clear',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (isWide) {
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: paidOnBehalfGroups.map((g) {
+                    return SizedBox(
+                      width: (constraints.maxWidth - 12) / 2,
+                      child: buildItemCard(g),
+                    );
+                  }).toList(),
+                );
+              } else {
+                return Column(
+                  children: paidOnBehalfGroups.map(buildItemCard).toList(),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+ // ---------------- MODERN BENTO DASHBOARD VIEW ----------------
+Widget _buildDashboardView() {
+final curConfirmations = _confirmations.where((c) => c.status == 'PENDING').toList();
+
+return Column(
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+    // 1. ACTIVE ADVANCES AT THE VERY TOP
+    _buildDashboardAdvancesCard(),
+
+    // 2. PAID ON BEHALF CARD DIRECTLY BELOW ADVANCES
+    _buildDashboardPaidOnBehalfCard(),
+
+    // 3. TWO INTERACTIVE ACTION CARDS (MUTUALLY EXCLUSIVE TOGGLE)
+    isMobile
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _dashboardActionCard(
+                label: 'Quick Trade',
+                value: curConfirmations.isNotEmpty ? '${curConfirmations.length} Pending' : 'Create Trade',
+                subtitle: _dashShowQuickTrade ? 'Tap to hide' : 'Trade & Dispatch Desk',
+                icon: Icons.bolt_rounded,
+                accentColor: const Color(0xFF047857),
+                bgColor: const Color(0xFFECFDF5),
+                isActive: _dashShowQuickTrade,
+                onTap: () => setState(() {
+                  _dashShowQuickTrade = !_dashShowQuickTrade;
+                  if (_dashShowQuickTrade) _dashShowOverdue = false;
+                }),
+              ),
+              const SizedBox(height: 10),
+              _dashboardActionCard(
+                label: 'Overdue Bills',
+                value: '${_overdueBills.length} Invoices',
+                subtitle: _dashShowOverdue ? 'Tap to hide' : 'Awaiting Settlement > 10 Days',
+                icon: Icons.warning_amber_rounded,
+                accentColor: const Color(0xFFEF4444),
+                bgColor: const Color(0xFFFEF2F2),
+                isActive: _dashShowOverdue,
+                onTap: () => setState(() {
+                  _dashShowOverdue = !_dashShowOverdue;
+                  if (_dashShowOverdue) _dashShowQuickTrade = false;
+                }),
+              ),
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(
+                child: _dashboardActionCard(
+                  label: 'Quick Trade',
+                  value: curConfirmations.isNotEmpty ? '${curConfirmations.length} Pending' : 'Create Trade',
+                  subtitle: _dashShowQuickTrade ? 'Click to hide desk' : 'Trade Desk & Dispatch',
+                  icon: Icons.bolt_rounded,
+                  accentColor: const Color(0xFF047857),
+                  bgColor: const Color(0xFFECFDF5),
+                  isActive: _dashShowQuickTrade,
+                  onTap: () => setState(() {
+                    _dashShowQuickTrade = !_dashShowQuickTrade;
+                    if (_dashShowQuickTrade) _dashShowOverdue = false;
+                  }),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _dashboardActionCard(
+                  label: 'Overdue Invoices',
+                  value: '${_overdueBills.length} Invoices',
+                  subtitle: _dashShowOverdue ? 'Click to hide' : 'Awaiting Settlement > 10 Days',
+                  icon: Icons.warning_amber_rounded,
+                  accentColor: const Color(0xFFEF4444),
+                  bgColor: const Color(0xFFFEF2F2),
+                  isActive: _dashShowOverdue,
+                  onTap: () => setState(() {
+                    _dashShowOverdue = !_dashShowOverdue;
+                    if (_dashShowOverdue) _dashShowQuickTrade = false;
+                  }),
+                ),
+              ),
+            ],
+          ),
+    const SizedBox(height: 18),
+
+    // 4. QUICK TRADE CONSOLE & PENDING TRADES (OVERFLOW-PROOF)
+    if (_dashShowQuickTrade) ...[
+      Container(
+        padding: EdgeInsets.all(isMobile ? 14 : 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF047857).withOpacity(0.35), width: 1.5),
+          boxShadow: const [BoxShadow(color: Color(0x06000000), blurRadius: 16, offset: Offset(0, 6))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.bolt_rounded, color: Color(0xFF047857), size: 22),
+                    SizedBox(width: 8),
+                    Text(
+                      'Quick Trade Confirmation',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), letterSpacing: -0.3),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-
-                // Top Inputs: Date, Seller, Buyer
-                isMobile
-                    ? Column(
-                        children: [
-                          _customField('Date *', _confDateCtrl, icon: Icons.calendar_today_outlined, onTap: () => _selectDateForController(_confDateCtrl)),
-                          const SizedBox(height: 10),
-                          _customAutocomplete('Seller *', _sellerNames, _confSeller, 'SELECT SELLER', (v) => setState(() => _confSeller = v)),
-                          const SizedBox(height: 10),
-                          _customAutocomplete('Buyer *', _buyerNames, _confBuyer, 'SELECT BUYER', (v) => setState(() => _confBuyer = v)),
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          Expanded(child: _customField('Date *', _confDateCtrl, icon: Icons.calendar_today_outlined, onTap: () => _selectDateForController(_confDateCtrl))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _customAutocomplete('Seller *', _sellerNames, _confSeller, 'SELECT SELLER', (v) => setState(() => _confSeller = v))),
-                          const SizedBox(width: 12),
-                          Expanded(child: _customAutocomplete('Buyer *', _buyerNames, _confBuyer, 'SELECT BUYER', (v) => setState(() => _confBuyer = v))),
-                        ],
-                      ),
-                const SizedBox(height: 14),
-
-                // Bottom Inputs: Type, Rate, and Save Action
-                isMobile
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Coconut Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                                  InkWell(onTap: _showManageCommoditiesDialog, child: const Text('+ Manage', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-                                ],
-                              ),
-                              const SizedBox(height: 5),
-                              Container(
-                                height: 42,
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFCBD5E1))),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _coconutTypes.contains(_confType) ? _confType : (_coconutTypes.isNotEmpty ? _coconutTypes.first : null),
-                                    isExpanded: true,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                                    items: _coconutTypes.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                                    onChanged: (val) => setState(() => _confType = val!),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          _customField('Rate (₹) *', _confRateCtrl, isNum: true),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            height: 44,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF047857),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: _saveQuickTradeEntry,
-                              icon: const Icon(Icons.check_circle_outline, size: 18),
-                              label: const Text('Save Trade Confirmation', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            flex: 4,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text('Coconut Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                                    InkWell(onTap: _showManageCommoditiesDialog, child: const Text('+ Manage', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
-                                  ],
-                                ),
-                                const SizedBox(height: 5),
-                                Container(
-                                  height: 42,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                                  decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFCBD5E1))),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: _coconutTypes.contains(_confType) ? _confType : (_coconutTypes.isNotEmpty ? _coconutTypes.first : null),
-                                      isExpanded: true,
-                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                                      items: _coconutTypes.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                                      onChanged: (val) => setState(() => _confType = val!),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 3,
-                            child: _customField('Rate (₹) *', _confRateCtrl, isNum: true),
-                          ),
-                          const SizedBox(width: 14),
-                          SizedBox(
-                            height: 42,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF047857),
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: _saveQuickTradeEntry,
-                              icon: const Icon(Icons.check_circle_outline, size: 18),
-                              label: const Text('Save Trade', style: TextStyle(fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
-                      ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18, color: Color(0xFF64748B)),
+                  tooltip: 'Close Quick Trade',
+                  onPressed: () => setState(() => _dashShowQuickTrade = false),
+                ),
               ],
             ),
-          ),
-          const SizedBox(height: 18),
-          _buildPendingTradesTable(curConfirmations),
-          const SizedBox(height: 18),
-        ],
+            const SizedBox(height: 14),
 
-        // 4. OVERDUE INVOICES ALERT TABLE
-        if (_dashShowOverdue) ...[
-          _buildOverdueAlertCard(),
-          const SizedBox(height: 18),
-        ],
-      ],
-    );
-  }
+            // Top Inputs: Date, Seller, Buyer
+            isMobile
+                ? Column(
+                    children: [
+                      _customField('Date *', _confDateCtrl, icon: Icons.calendar_today_outlined, onTap: () => _selectDateForController(_confDateCtrl)),
+                      const SizedBox(height: 10),
+                      _customAutocomplete('Seller *', _sellerNames, _confSeller, 'SELECT SELLER', (v) => setState(() => _confSeller = v)),
+                      const SizedBox(height: 10),
+                      _customAutocomplete('Buyer *', _buyerNames, _confBuyer, 'SELECT BUYER', (v) => setState(() => _confBuyer = v)),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: _customField('Date *', _confDateCtrl, icon: Icons.calendar_today_outlined, onTap: () => _selectDateForController(_confDateCtrl))),
+                      const SizedBox(width: 12),
+                      Expanded(child: _customAutocomplete('Seller *', _sellerNames, _confSeller, 'SELECT SELLER', (v) => setState(() => _confSeller = v))),
+                      const SizedBox(width: 12),
+                      Expanded(child: _customAutocomplete('Buyer *', _buyerNames, _confBuyer, 'SELECT BUYER', (v) => setState(() => _confBuyer = v))),
+                    ],
+                  ),
+            const SizedBox(height: 14),
+
+            // Bottom Inputs: Type, Rate, and Save Action
+            isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Coconut Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                              InkWell(onTap: _showManageCommoditiesDialog, child: const Text('+ Manage', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFCBD5E1))),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _coconutTypes.contains(_confType) ? _confType : (_coconutTypes.isNotEmpty ? _coconutTypes.first : null),
+                                isExpanded: true,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                items: _coconutTypes.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                                onChanged: (val) => setState(() => _confType = val!),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _customField('Rate (₹) *', _confRateCtrl, isNum: true),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        height: 44,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF047857),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: _saveQuickTradeEntry,
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: const Text('Save Trade Confirmation', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        flex: 4,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Coconut Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                                InkWell(onTap: _showManageCommoditiesDialog, child: const Text('+ Manage', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
+                              ],
+                            ),
+                            const SizedBox(height: 5),
+                            Container(
+                              height: 42,
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFCBD5E1))),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _coconutTypes.contains(_confType) ? _confType : (_coconutTypes.isNotEmpty ? _coconutTypes.first : null),
+                                  isExpanded: true,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                  items: _coconutTypes.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                                  onChanged: (val) => setState(() => _confType = val!),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 3,
+                        child: _customField('Rate (₹) *', _confRateCtrl, isNum: true),
+                      ),
+                      const SizedBox(width: 14),
+                      SizedBox(
+                        height: 42,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF047857),
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: _saveQuickTradeEntry,
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: const Text('Save Trade', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      _buildPendingTradesTable(curConfirmations),
+      const SizedBox(height: 18),
+    ],
+
+    // 5. OVERDUE INVOICES ALERT TABLE
+    if (_dashShowOverdue) ...[
+      _buildOverdueAlertCard(),
+      const SizedBox(height: 18),
+    ],
+  ],
+);
+}
   Future<void> _saveQuickTradeEntry() async {
     final sRate = double.tryParse(_confRateCtrl.text.trim()) ?? 0.0;
     if (_confSeller.trim().isEmpty || _confBuyer.trim().isEmpty || sRate <= 0) {
@@ -7725,7 +8091,7 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
   }
 
   // ---------------- PAYMENTS VIEW (CLEAN MANUAL CONSOLE) ----------------
-  Widget _buildPaymentsView() {
+  Widget _buildPaymentsView() {    
     final query = _paySearchCtrl.text.trim().toLowerCase();
     final payList = _payments.where((p) {
       final matchesState = p.state == _selectedState;
@@ -8079,7 +8445,17 @@ Expanded(
                   flex: 3,
                   child: _customField('Payment Date (DD-MM-YY) *', _payDateCtrl, hint: 'DD-MM-YY'),
                 ),
-                const SizedBox(width: 12),
+                Expanded(
+           flex: 3,
+           child: _customField(
+             'Lump-Sum Paid/Remittance (Optional)',
+             _payDepositTotalCtrl,
+             hint: 'e.g. 98000',
+             isNum: true,
+             onChanged: (_) => setState(() {}),
+           ),
+         ),
+                const SizedBox(width: 12),                
 
                 // 2. Amount Field with Math Auto-Sum & "+ Add Amount Paid/Received" Quick Link
                 Expanded(
@@ -8187,18 +8563,47 @@ Expanded(
 
               // Row 2: Discount/Settlement, Commission Adjusted, Transport Received
               _responsiveRow([
-                Expanded(
-                  child: _customField('Discount / Settlement (₹)', _paySettlementCtrl, hint: '0', isNum: true),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _customField('Commission Adjusted (₹)', _payCommAdjustedCtrl, hint: '0', isNum: true),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _customField('Transport Received (₹)', _payTransportReceivedCtrl, hint: '0', isNum: true),
-                ),
-              ]),
+             Expanded(
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Row(
+                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                     children: [
+                       Text(
+                         _payAdjType == 'DISCOUNT' ? 'Discount (₹)' : 'Settlement (₹)',
+                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                       ),
+                       Container(
+                         decoration: BoxDecoration(
+                           color: const Color(0xFFF1F5F9),
+                           borderRadius: BorderRadius.circular(8),
+                           border: Border.all(color: const Color(0xFFE2E8F0)),
+                         ),
+                         child: Row(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             _buildAdjTypeChip('DISCOUNT', 'Discount'),
+                             _buildAdjTypeChip('SETTLEMENT', 'Settlement'),
+                           ],
+                         ),
+                       ),
+                     ],
+                   ),
+                   const SizedBox(height: 5),
+                   _customField('', _paySettlementCtrl, hint: '0', isNum: true),
+                 ],
+               ),
+             ),
+             const SizedBox(width: 12),
+             Expanded(
+               child: _customField('Commission Adjusted (₹)', _payCommAdjustedCtrl, hint: '0', isNum: true),
+             ),
+             const SizedBox(width: 12),
+             Expanded(
+               child: _customField('Transport Received (₹)', _payTransportReceivedCtrl, hint: '0', isNum: true),
+             ),
+           ]),
 
               const SizedBox(height: 22),
 
@@ -8212,6 +8617,7 @@ Expanded(
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     onPressed: () {
+                      final double parentDeposit = double.tryParse(_payDepositTotalCtrl.text.trim()) ?? 0.0;
                       final sName = _paySeller.trim().toUpperCase();
                       final bName = _payBuyer.trim().toUpperCase();
 
@@ -8287,6 +8693,8 @@ Expanded(
                               transportReceived: transRec,
                               settlement: disc,
                               commissionAdjusted: commAdj,
+                              depositTotal: parentDeposit,
+                              adjType: _payAdjType,
                               mode: _payMode,
                               date: pDate,
                               truckId: _paySelectedTruckId,
@@ -8314,6 +8722,8 @@ Expanded(
                               transportReceived: i == 0 ? transRec : 0,
                               settlement: i == 0 ? disc : 0,
                               commissionAdjusted: i == 0 ? commAdj : 0,
+                              depositTotal: i == 0 ? parentDeposit : 0.0,
+                              adjType: _payAdjType,
                               mode: _payMode,
                               date: pDate,
                               truckId: _paySelectedTruckId,
@@ -8476,9 +8886,24 @@ Expanded(
                                     ),
                                   ),
                                   DataCell(Text(p.party.isEmpty ? '—' : p.party, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF0F172A)))),
-                                  DataCell(Text(money(p.amount), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857)))),
+                                  DataCell(
+                                    p.depositTotal > 0 && p.depositTotal != p.amount
+                                        ? Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Text(money(p.amount), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
+                                              Text('Remittance: ${money(p.depositTotal)}', style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
+                                            ],
+                                          )
+                                        : Text(money(p.amount), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
+                                  ),
                                   DataCell(Text(p.mode, style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569)))),
-                                  DataCell(Text(money(p.settlement), style: const TextStyle(fontSize: 11.5))),
+                                  DataCell(Text(p.settlement > 0
+      ? '${p.adjType == "SETTLEMENT" ? "Settled" : "Disc"} ${money(p.settlement)}'
+      : '—',
+  style: const TextStyle(fontSize: 11.5),
+)),
                                   DataCell(
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -9317,6 +9742,18 @@ _commitToLocalDrive();
 }
   // --- SUB-METHOD: TABLE WITH DETAILED AUDIT ADVANCE TEXT ---
   Widget _buildBuyerTableContent(List<Map<String, dynamic>> rows, double vQty, double vBills, double vPaid, double vBal) {
+    double screenPurePaid = 0.0;
+    double screenDiscount = 0.0;
+    double screenAdvAdj = 0.0;
+
+    for (var r in rows) {
+      final pList = r['payments'] as List<dynamic>;
+      for (var p in pList) {
+        screenPurePaid += (p.amount as num?)?.toDouble() ?? 0.0;
+        screenDiscount += (p.settlement as num?)?.toDouble() ?? 0.0;
+      }
+      screenAdvAdj += (r['advanceAdjusted'] as num?)?.toDouble() ?? 0.0;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -9439,7 +9876,29 @@ _commitToLocalDrive();
               const Expanded(flex: 3, child: Text('—', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)))),
               SizedBox(width: 95, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 105, child: Text(money(vBills), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              Expanded(flex: 4, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              // NEW:
+Expanded(
+  flex: 4,
+  child: screenDiscount > 0
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Paid: ${money(screenPurePaid + screenAdvAdj)}  •  Disc: ${money(screenDiscount)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF065F46)),
+            ),
+            Text(
+              'Total Cleared: ${money(vPaid)}',
+              style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12),
+            ),
+          ],
+        )
+      : Text(
+          money(vPaid),
+          style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12),
+        ),
+),
               SizedBox(
                 width: 110,
                 child: Text(money(vBal), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
@@ -10002,6 +10461,16 @@ _commitToLocalDrive();
     double vPaid,
     double vBal,
   ) {
+    double sellerScreenPurePaid = 0.0;
+    double sellerScreenDiscount = 0.0;
+
+    for (var r in rows) {
+      final pList = r['payments'] as List<dynamic>;
+      for (var p in pList) {
+        sellerScreenPurePaid += (p.amount as num?)?.toDouble() ?? 0.0;
+        sellerScreenDiscount += (p.settlement as num?)?.toDouble() ?? 0.0;
+      }
+    }
     final bool isBuyerOnlyMode = _repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isNotEmpty;
 
     return Column(
@@ -10158,7 +10627,29 @@ _commitToLocalDrive();
               SizedBox(width: 90, child: Text('${numFmt(vQty)} NUTS', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 95, child: Text(money(vComm), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
               SizedBox(width: 105, child: Text(money(vBilled), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
-              Expanded(flex: 4, child: Text(money(vPaid), style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12))),
+              // NEW:
+Expanded(
+  flex: 4,
+  child: sellerScreenDiscount > 0
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Paid: ${money(sellerScreenPurePaid)}  •  Disc: ${money(sellerScreenDiscount)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF065F46)),
+            ),
+            Text(
+              'Total Cleared: ${money(vPaid)}',
+              style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12),
+            ),
+          ],
+        )
+      : Text(
+          money(vPaid),
+          style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 12),
+        ),
+),
               SizedBox(
                 width: 105,
                 child: Text(money(vBal), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
@@ -11819,6 +12310,17 @@ _commitToLocalDrive();
     const greenBorder = PdfColor.fromInt(0xFF4D8B61);
     const titleGreen = PdfColor.fromInt(0xFF126B35);
     const redAccent = PdfColor.fromInt(0xFFBD2020);
+    // Calculate Pure Paid vs Discount/Settlement breakdown
+    double totalSellerPurePaid = 0.0;
+    double totalSellerDiscount = 0.0;
+
+    for (var r in rows) {
+      final pList = r['payments'] as List<dynamic>;
+      for (var p in pList) {
+        totalSellerPurePaid += (p.amount as num?)?.toDouble() ?? 0.0;
+        totalSellerDiscount += (p.settlement as num?)?.toDouble() ?? 0.0;
+      }
+    }
 
     final bool isBuyerOnlyMode = buyerFilter.trim().isNotEmpty &&
     (seller.trim().isEmpty || seller.trim().toUpperCase() == "ALL SELLERS" || seller.trim().toUpperCase().startsWith("BUYER:"));
@@ -11960,6 +12462,13 @@ _commitToLocalDrive();
                 String paidText = byDate.isEmpty ? '-' : byDate.entries.map((entry) {
                   final dt = formatDisplayDate(entry.key);
                   final dPays = entry.value;
+
+                  // Check if any payment in this date has a lump-sum parent deposit
+                  final lumpSumItems = dPays.where((p) => (p.depositTotal ?? 0) > p.amount).toList();
+                  if (lumpSumItems.isNotEmpty) {
+                    return lumpSumItems.map((p) => "Paid dt. $dt of Rs. ${pdfMoney(p.depositTotal)} adj. Rs. ${pdfMoney(p.amount)} (${p.mode})").join('\n');
+                  }
+
                   final bool sameMode = dPays.map((p) => p.mode).toSet().length == 1;
                   if (sameMode) {
                     final amts = dPays.map((p) => "Rs. ${pdfMoney(p.amount)}").join(' + ');
@@ -12003,7 +12512,27 @@ _commitToLocalDrive();
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${numFmt(totalQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalComm)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalBilled)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                  if (!hidePaid) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  // NEW: Shows Paid + Discount + Total
+if (!hidePaid)
+  pw.Padding(
+    padding: const pw.EdgeInsets.all(3.5),
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        if (totalSellerDiscount > 0) ...[
+          pw.Text('Paid: Rs. ${pdfMoney(totalSellerPurePaid)}',
+              style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+          pw.Text('+ Disc: Rs. ${pdfMoney(totalSellerDiscount)}',
+              style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: redAccent)),
+          pw.Text('Total: Rs. ${pdfMoney(totalPaid)}',
+              style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+        ] else ...[
+          pw.Text('Rs. ${pdfMoney(totalPaid)}',
+              style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+        ],
+      ],
+    ),
+  ),
                   if (!hidePaid) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                 ],
               ),
@@ -12266,6 +12795,19 @@ _commitToLocalDrive();
     const greenBorder = PdfColor.fromInt(0xFF4D8B61);
     const titleGreen = PdfColor.fromInt(0xFF126B35);
     const redAccent = PdfColor.fromInt(0xFFBD2020);
+    // Calculate Pure Paid vs Discount/Settlement breakdown
+    double totalPurePaid = 0.0;
+    double totalDiscount = 0.0;
+    double totalAdvAdj = 0.0;
+
+    for (var r in rows) {
+      final pList = r['payments'] as List<dynamic>;
+      for (var p in pList) {
+        totalPurePaid += (p.amount as num?)?.toDouble() ?? 0.0;
+        totalDiscount += (p.settlement as num?)?.toDouble() ?? 0.0;
+      }
+      totalAdvAdj += (r['advanceAdjusted'] as num?)?.toDouble() ?? 0.0;
+    }
 
     pdf.addPage(
       pw.MultiPage(
@@ -12365,18 +12907,38 @@ _commitToLocalDrive();
               ),
               ...rows.map((row) {
                 final List<dynamic> pList = row['payments'] as List<dynamic>;
-                String paidText = pList.isEmpty
-                    ? '-'
-                    : pList.map((p) {
-                        final dt = formatDisplayDate(p.date);
-                        if (p.amount == 0 && p.settlement > 0) {
-                          return "Rs. ${pdfMoney(p.settlement)} (SETTLEMENT on $dt)";
-                        }
-                        if (p.amount > 0 && p.settlement > 0) {
-                          return "Rs. ${pdfMoney(p.amount)} (${p.mode}) + Rs. ${pdfMoney(p.settlement)} (SETTLEMENT) on $dt";
-                        }
-                        return "Rs. ${pdfMoney(p.amount)} (${p.mode} on $dt)";
-                      }).join('\n');
+                final double advAdj = (row['advanceAdjusted'] as num?)?.toDouble() ?? 0.0;
+                final List<String>? advTrails = row['advanceAuditTrails'] as List<String>?;
+
+                List<String> paidLines = [];
+
+                // 1. Direct payments (with proper Discount vs Settlement tag)
+               for (var p in pList) {
+              final dt = formatDisplayDate(p.date);
+              final String adjUpper = p.adjType == 'SETTLEMENT' ? 'SETTLEMENT' : 'DISCOUNT';
+
+              if (p.depositTotal > 0 && p.depositTotal > p.amount) {
+                paidLines.add("Paid dt. $dt of Rs. ${pdfMoney(p.depositTotal)} adj. Rs. ${pdfMoney(p.amount)} (${p.mode})");
+              } else if (p.amount == 0 && p.settlement > 0) {
+                paidLines.add("Rs. ${pdfMoney(p.settlement)} ($adjUpper on $dt)");
+              } else if (p.amount > 0 && p.settlement > 0) {
+                paidLines.add("Rs. ${pdfMoney(p.amount)} (${p.mode}) + Rs. ${pdfMoney(p.settlement)} ($adjUpper) on $dt");
+              } else if (p.amount > 0) {
+                paidLines.add("Rs. ${pdfMoney(p.amount)} (${p.mode} on $dt)");
+              }
+            }
+
+                // 2. Advance drawdowns
+                if (advAdj > 0) {
+                  if (advTrails != null && advTrails.isNotEmpty) {
+                    paidLines.addAll(advTrails.map((t) => t.replaceAll('₹', 'Rs. ')));
+                  } else {
+                    paidLines.add("Adv Adj: Rs. ${pdfMoney(advAdj)}");
+                  }
+                }
+
+                String paidText = paidLines.isEmpty ? '-' : paidLines.join('\n');
+
                 return pw.TableRow(
                   children: [
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'], style: const pw.TextStyle(fontSize: 8))),
@@ -12398,7 +12960,26 @@ _commitToLocalDrive();
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('-', style: const pw.TextStyle(fontSize: 8))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${numFmt(totalQty)} NUTS', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalBilled)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                  pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  // NEW: Shows Paid + Discount + Total
+pw.Padding(
+  padding: const pw.EdgeInsets.all(3.5),
+  child: pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: [
+      if (totalDiscount > 0) ...[
+        pw.Text('Paid: Rs. ${pdfMoney(totalPurePaid + totalAdvAdj)}',
+            style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+        pw.Text('+ Disc: Rs. ${pdfMoney(totalDiscount)}',
+            style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: redAccent)),
+        pw.Text('Total: Rs. ${pdfMoney(totalPaid)}',
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+      ] else ...[
+        pw.Text('Rs. ${pdfMoney(totalPaid)}',
+            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+      ],
+    ],
+  ),
+),
                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: titleGreen))),
                 ],
               ),
@@ -12427,18 +13008,7 @@ _commitToLocalDrive();
                 pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
               ],
             ),
-          ),
-          pw.SizedBox(height: 14),
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Customer Signature', style: const pw.TextStyle(fontSize: 8.5)),
-                pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
-              ],
-            ),
-          ),
+          ),          
         ],
       ),
     );
