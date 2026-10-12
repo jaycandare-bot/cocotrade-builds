@@ -1371,6 +1371,7 @@ if (pDate.isEmpty) {
   List<String> _paymentModes = [
     "ICICI BANK",
     "DIRECT",
+    "ADJUSTED",
     "CASH",
     "KOTAK BANK",
     "STATE BANK OF INDIA",
@@ -10328,133 +10329,164 @@ Expanded(
         },
       ),
     ],
-        // 3. Seller Advances Banners (FIFO Allocation across advances)
-    if (_repSeller.trim().isNotEmpty && sellerAdvanceEntries.isNotEmpty) ...[
-      Builder(
-        builder: (context) {
-          // Chronologically sort advances by date
-          final sortedSellerAdvances = List<PaymentEntry>.from(sellerAdvanceEntries)
-            ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
+       // 3. Seller Advances Banners (Recognizes ADJUSTED)
+        if (_repSeller.trim().isNotEmpty && sellerAdvanceEntries.isNotEmpty) ...[
+          Builder(
+            builder: (context) {
+              final sortedSellerAdvances = List<PaymentEntry>.from(sellerAdvanceEntries)
+                ..sort((a, b) => parseFlexibleDate(a.date).compareTo(parseFlexibleDate(b.date)));
 
-          // Calculate total payments adjusted against this seller's advance pool
-          double unallocatedAdjustedPool = sellerPayments.where((p) {
-            if (sortedSellerAdvances.any((a) => a.id == p.id)) return false;
-            final bool sameSeller = p.seller.trim().toUpperCase() == _repSeller.trim().toUpperCase();
-            if (!sameSeller) return false;
+              // Find all adjustment entries made against this seller
+              final adjustmentEntries = sellerPayments.where((p) {
+                if (sortedSellerAdvances.any((a) => a.id == p.id)) return false;
+                final bool sameSeller = p.seller.trim().toUpperCase() == _repSeller.trim().toUpperCase();
+                if (!sameSeller) return false;
 
-            final bool isAllocated = p.truckId.trim().isNotEmpty ||
-                (p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER");
-            if (!isAllocated) return false;
+                final bool isAllocated = p.truckId.trim().isNotEmpty ||
+                    (p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER");
+                if (!isAllocated) return false;
 
-            final pMode = p.mode.trim().toUpperCase();
-            final bool isAdvAdj = pMode.contains("ADVANCE") ||
-                pMode.contains("ADJUST") ||
-                sortedSellerAdvances.any((a) => a.mode.trim().toUpperCase() == pMode);
+                final pMode = p.mode.trim().toUpperCase();
+                return pMode == "ADJUSTED" || pMode.contains("ADJUST");
+              }).toList();
 
-            return isAdvAdj;
-          }).fold<double>(0.0, (s, p) => s + p.amount + p.settlement);
+              double unallocatedAdjustedPool = adjustmentEntries.fold<double>(
+                0.0,
+                (s, p) => s + p.amount + p.settlement,
+              );
 
-          final List<Map<String, dynamic>> computedAdvCards = [];
-          for (var adv in sortedSellerAdvances) {
-            final double origAmt = adv.amount + adv.settlement;
-            double adjForThis = 0.0;
+              final List<Map<String, dynamic>> computedAdvCards = [];
+              for (var adv in sortedSellerAdvances) {
+                final double origAmt = adv.amount + adv.settlement;
+                double adjForThis = 0.0;
 
-            if (unallocatedAdjustedPool > 0) {
-              if (unallocatedAdjustedPool >= origAmt) {
-                adjForThis = origAmt;
-                unallocatedAdjustedPool -= origAmt;
-              } else {
-                adjForThis = unallocatedAdjustedPool;
-                unallocatedAdjustedPool = 0.0;
+                if (unallocatedAdjustedPool > 0) {
+                  if (unallocatedAdjustedPool >= origAmt) {
+                    adjForThis = origAmt;
+                    unallocatedAdjustedPool -= origAmt;
+                  } else {
+                    adjForThis = unallocatedAdjustedPool;
+                    unallocatedAdjustedPool = 0.0;
+                  }
+                }
+
+                final double remainingAdv = (origAmt - adjForThis).clamp(0.0, double.infinity);
+                
+                if (!_hideSettledEntries || remainingAdv > 0.05) {
+                  computedAdvCards.add({
+                    'entry': adv,
+                    'origAmt': origAmt,
+                    'adjustedAmt': adjForThis,
+                    'remainingAdv': remainingAdv,
+                    'adjustments': adjustmentEntries,
+                  });
+                }
               }
-            }
 
-            final double remainingAdv = (origAmt - adjForThis).clamp(0.0, double.infinity);
-            if (remainingAdv > 0.05) {
-              computedAdvCards.add({
-                'entry': adv,
-                'origAmt': origAmt,
-                'adjustedAmt': adjForThis,
-                'remainingAdv': remainingAdv,
-              });
-            }
-          }
+              if (computedAdvCards.isEmpty) return const SizedBox.shrink();
 
-          return Column(
-            children: computedAdvCards.map((data) {
-              final adv = data['entry'] as PaymentEntry;
-              final double origAmt = data['origAmt'] as double;
-              final double adjustedAmt = data['adjustedAmt'] as double;
-              final double remainingAdv = data['remainingAdv'] as double;
+              return Column(
+                children: computedAdvCards.map((data) {
+                  final adv = data['entry'] as PaymentEntry;
+                  final double origAmt = data['origAmt'] as double;
+                  final double adjustedAmt = data['adjustedAmt'] as double;
+                  final double remainingAdv = data['remainingAdv'] as double;
+                  final List<PaymentEntry> adjs = data['adjustments'] as List<PaymentEntry>;
+                  final bool isFullyCleared = remainingAdv <= 0.05;
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFBFDBFE)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.outbox_rounded, color: Color(0xFF1D4ED8), size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: TextStyle(fontSize: isMobile ? 11.5 : 13, color: const Color(0xFF1E40AF)),
-                          children: [
-                            const TextSpan(text: 'SELLER ADVANCE REMAINING: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                            TextSpan(text: money(remainingAdv), style: const TextStyle(fontWeight: FontWeight.w900)),
-                            TextSpan(
-                              text: ' (${adv.mode.isNotEmpty ? adv.mode : 'BANK'} on ${formatDisplayDate(adv.date)})',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            if (adjustedAmt > 0)
-                              TextSpan(
-                                text: ' • [Original: ${money(origAmt)} | Adjusted: ${money(adjustedAmt)}]',
-                                style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 11),
-                              ),
-                            TextSpan(
-                              text: ' — [Pending Buyer Assignment]',
-                              style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 11, fontStyle: FontStyle.italic),
-                            ),
-                          ],
-                        ),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isFullyCleared ? const Color(0xFFF8FAFC) : const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isFullyCleared ? const Color(0xFFCBD5E1) : const Color(0xFFBFDBFE),
                       ),
                     ),
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      tooltip: 'Edit Advance Record',
-                      icon: const Icon(Icons.edit, size: 16, color: Color(0xFF1D4ED8)),
-                      onPressed: () => _editPaymentEntryDialog(adv),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isFullyCleared ? Icons.check_circle_outline_rounded : Icons.outbox_rounded,
+                              color: isFullyCleared ? const Color(0xFF047857) : const Color(0xFF1D4ED8),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: RichText(
+                                text: TextSpan(
+                                  style: TextStyle(
+                                    fontSize: isMobile ? 11.5 : 13,
+                                    color: isFullyCleared ? const Color(0xFF334155) : const Color(0xFF1E40AF),
+                                  ),
+                                  children: [
+                                    TextSpan(
+                                      text: isFullyCleared ? 'ADVANCE ADJUSTED: ' : 'SELLER ADVANCE REMAINING: ',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    TextSpan(
+                                      text: isFullyCleared ? money(origAmt) : money(remainingAdv),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        color: isFullyCleared ? const Color(0xFF047857) : const Color(0xFF1D4ED8),
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: ' (Given on ${formatDisplayDate(adv.date)} via ${adv.mode})',
+                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (!isFullyCleared)
+                              IconButton(
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                icon: const Icon(Icons.edit, size: 16, color: Color(0xFF1D4ED8)),
+                                onPressed: () => _editPaymentEntryDialog(adv),
+                              ),
+                          ],
+                        ),
+                        if (adjustedAmt > 0 && adjs.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: adjs.map((adj) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 1.5),
+                                  child: Text(
+                                    '↳ Adjusted ${money(adj.amount)} on ${formatDisplayDate(adj.date)} against Buyer: ${adj.buyer}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                      onPressed: () async {
-                        if (await _confirmDelete(context, "Seller Advance of ${money(origAmt)}")) {
-                          setState(() {
-                            _saveStateToHistory();
-                            _payments.removeWhere((item) => item.id == adv.id);
-                            _calculateOverdueBills(_trucks);
-                          });
-                          _commitToLocalDrive();
-                        }
-                      },
-                    ),
-                  ],
-                ),
+                  );
+                }).toList(),
               );
-            }).toList(),
-          );
-        },
-      ),
-      const SizedBox(height: 4),
-    ],
+            },
+          ),
+          const SizedBox(height: 4),
+        ],
 
        if (_repSeller.trim().isEmpty && _repSellerBuyerFilter.trim().isEmpty)
           Container(
@@ -12367,7 +12399,26 @@ Expanded(
     // Calculate Pure Paid vs Discount/Settlement breakdown
     double totalSellerPurePaid = 0.0;
     double totalSellerDiscount = 0.0;
+    // Collect seller advances and adjusted entries for the PDF audit trail
+    final sClean = seller.toUpperCase();
+    final allSellerPays = _payments.where((p) =>
+      p.state == _selectedState &&
+      p.seller.toUpperCase() == sClean &&
+      _isDateInFY(p.date, _selectedFinancialYear)
+    ).toList();
 
+    final sellerAdvances = allSellerPays.where((p) {
+      final tId = p.truckId.trim();
+      final bName = p.buyer.trim();
+      final isSellerType = p.type.toUpperCase().contains("SELLER");
+      return isSellerType && tId.isEmpty && (bName.isEmpty || bName == "SELECT BUYER");
+    }).toList();
+
+    final adjustedEntries = allSellerPays.where((p) {
+      final isAlloc = p.truckId.trim().isNotEmpty || (p.buyer.trim().isNotEmpty && p.buyer.trim().toUpperCase() != "SELECT BUYER");
+      final m = p.mode.toUpperCase();
+      return isAlloc && (m == "ADJUSTED" || m.contains("ADJUST"));
+    }).toList();
     for (var r in rows) {
       final pList = r['payments'] as List<dynamic>;
       for (var p in pList) {
@@ -12593,6 +12644,50 @@ if (!hidePaid)
             ],
           ),
           pw.SizedBox(height: 6),
+          // SELLER ADVANCE & ADJUSTED HISTORY BOX (PDF NATIVE WIDGET)
+          if (sellerAdvances.isNotEmpty) ...[
+            pw.Container(
+              width: double.infinity,
+              margin: const pw.EdgeInsets.only(bottom: 6),
+              padding: const pw.EdgeInsets.all(6),
+              decoration: pw.BoxDecoration(
+                color: const PdfColor.fromInt(0xFFF8FAFC),
+                border: pw.Border.all(color: greenBorder, width: 0.8),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'ADVANCES & ADJUSTMENTS AUDIT TRAIL:',
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen),
+                  ),
+                  pw.SizedBox(height: 2),
+                  ...sellerAdvances.map((adv) {
+                    final dt = formatDisplayDate(adv.date);
+                    final origAmt = adv.amount + adv.settlement;
+
+                    return pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          '• Advance Paid: Rs. ${pdfMoney(origAmt)} on $dt via ${adv.mode}',
+                          style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
+                        ),
+                        ...adjustedEntries.map((a) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(left: 8, top: 1),
+                          child: pw.Text(
+                            '↳ Adjusted: Rs. ${pdfMoney(a.amount)} on ${formatDisplayDate(a.date)} against Buyer: ${a.buyer}',
+                            style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800),
+                          ),
+                        )),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 6),
+          ],
           // Row 1: Total Trucks & Commission Equations
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
