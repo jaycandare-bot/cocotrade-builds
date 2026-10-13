@@ -1323,6 +1323,8 @@ if (pDate.isEmpty) {
     _cStatementNameCtrl.dispose();
     _partySearchCtrl.dispose();
     _paySearchCtrl.dispose();
+    _truckMsgCtrl.dispose();
+    _paymentMsgCtrl.dispose();
     _smsSub?.cancel();
     super.dispose();
   }
@@ -1357,6 +1359,8 @@ if (pDate.isEmpty) {
 // SMS/WhatsApp Templates
   String _sellerMsgTemplate = "Trade Confirmed!\nDate: {date}\nBuyer: {buyer}\nCommodity: {type}\nRate: Rs. {rate}\n- {company}";
   String _buyerMsgTemplate = "Trade Confirmed!\nDate: {date}\nSeller: {seller}\nCommodity: {type}\nRate: Rs. {rate}\n- {company}";
+  String _truckMsgTemplate = "{company} DISPATCH ADVICE:\nDate: {date}\nTruck: {truck}\nQty: {qty} Nuts ({type})\nTransporter: {transporter}\nBill: Rs. {bill}";
+  String _paymentMsgTemplate = "{company} PAYMENT RECEIPT:\nDate: {date}\nParty: {party}\nAmount: Rs. {amount}\nMode: {mode}";
   String _partyTypeFilter = 'ALL';
   String _lastSyncTime = 'Never';
   String _tSupplier = "", _tSourceSeller = "", _tBuyer = "", _tTransporter = "", _tCoconutType = "TENDER";
@@ -1365,6 +1369,8 @@ if (pDate.isEmpty) {
   final _partySearchCtrl = TextEditingController();
   final TextEditingController _sellerMsgCtrl = TextEditingController();
   final TextEditingController _buyerMsgCtrl = TextEditingController();
+  final TextEditingController _truckMsgCtrl = TextEditingController();
+  final TextEditingController _paymentMsgCtrl = TextEditingController();
   final TextEditingController _loginEmailCtrl = TextEditingController();
   final TextEditingController _loginPassCtrl = TextEditingController();
   final TextEditingController _licenseKeyCtrl = TextEditingController();
@@ -3123,6 +3129,14 @@ Future<void> _recordSyncTimestamp() async {
       final savedBuyerMsg = prefs.getString('sms_buyer_template');
       if (savedBuyerMsg != null && savedBuyerMsg.isNotEmpty) {
         _buyerMsgTemplate = savedBuyerMsg;
+      }
+      final savedTruckMsg = prefs.getString('sms_truck_template');
+      if (savedTruckMsg != null && savedTruckMsg.isNotEmpty) {
+        _truckMsgTemplate = savedTruckMsg;
+      }
+      final savedPaymentMsg = prefs.getString('sms_payment_template');
+      if (savedPaymentMsg != null && savedPaymentMsg.isNotEmpty) {
+        _paymentMsgTemplate = savedPaymentMsg;
       }
 
       _isFirstLoginDone = prefs.getBool(_prefFirstLoginKey) ?? false;
@@ -7221,18 +7235,21 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
 
                         _commitToLocalDrive();
                         _calculateOverdueBills(_trucks);
-                        // Optional: Automatic Dispatch SMS to Buyer
+                        // Automatic Dispatch SMS to Buyer using Custom Template
       final matchedBuyer = _parties.firstWhere(
         (p) => p.name.toString().trim().toUpperCase() == bName,
         orElse: () => Party(name: "", type: "BUYER", phone: "", address: ""),
       );
       if (matchedBuyer.phone.trim().isNotEmpty) {
-        final dispatchMsg = "${_myCompany.name} DISPATCH ADVICE:\n"
-            "Date: ${_tDateCtrl.text.trim()}\n"
-            "Truck: ${_tTruckCtrl.text.trim().toUpperCase()}\n"
-            "Qty: ${_tQtyCtrl.text.trim()} Nuts (${_tCoconutType})\n"
-            "Transporter: $tName\n"
-            "Bill: Rs. ${money(bBill)}";
+        final dispatchMsg = _truckMsgTemplate
+            .replaceAll('{company}', _myCompany.name)
+            .replaceAll('{date}', _tDateCtrl.text.trim())
+            .replaceAll('{truck}', _tTruckCtrl.text.trim().toUpperCase())
+            .replaceAll('{qty}', _tQtyCtrl.text.trim())
+            .replaceAll('{type}', _tCoconutType)
+            .replaceAll('{transporter}', tName)
+            .replaceAll('{bill}', money(bBill));
+
         _queueNotificationSms(phone: matchedBuyer.phone, message: dispatchMsg);
       }
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -8903,18 +8920,20 @@ Expanded(
                       });
 
                       _commitToLocalDrive();
-                      // Optional: Automatic Payment Receipt SMS
+                      // Automatic Payment Receipt SMS using Custom Template
       final targetParty = _payType.contains("SELLER") ? cleanSeller : cleanBuyer;
       final matchedParty = _parties.firstWhere(
         (p) => p.name.toString().trim().toUpperCase() == targetParty,
-        orElse: () => Party(name: "", type: "", phone: "", address: ""),
+        orElse: () => Party(name: "", type: targetParty, phone: "", address: ""),
       );
       if (matchedParty.phone.trim().isNotEmpty) {
-        final payMsg = "${_myCompany.name} PAYMENT RECEIPT:\n"
-            "Date: $pDate\n"
-            "Party: $targetParty\n"
-            "Amount: Rs. ${money(splitAmts.first)}\n"
-            "Mode: $_payMode";
+        final payMsg = _paymentMsgTemplate
+            .replaceAll('{company}', _myCompany.name)
+            .replaceAll('{date}', pDate)
+            .replaceAll('{party}', targetParty)
+            .replaceAll('{amount}', money(splitAmts.first))
+            .replaceAll('{mode}', _payMode);
+
         _queueNotificationSms(phone: matchedParty.phone, message: payMsg);
       }
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -13322,7 +13341,10 @@ void _showStorageSettingsDialog() {
     _cTaglineCtrl.text = _myCompany.tagline;
     _sellerMsgCtrl.text = _sellerMsgTemplate;
     _buyerMsgCtrl.text = _buyerMsgTemplate;
+    _truckMsgCtrl.text = _truckMsgTemplate;
+    _paymentMsgCtrl.text = _paymentMsgTemplate;
     _cInvocationCtrl.text = _myCompany.invocation;
+    
     final invocationCtrl = TextEditingController(text: _myCompany.invocation);
 
     showDialog(
@@ -13498,23 +13520,55 @@ void _showStorageSettingsDialog() {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _customField('Seller Confirmation Template', _sellerMsgCtrl, maxLines: 4),
-                                const SizedBox(height: 12),
-                                _customField('Buyer Confirmation Template', _buyerMsgCtrl, maxLines: 4),
+                                const Text(
+                                  'TRADE CONFIRMATION TEMPLATES',
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Color(0xFF047857), letterSpacing: 0.5),
+                                ),
+                                const SizedBox(height: 8),
+                                _customField('Seller Trade Confirmation', _sellerMsgCtrl, maxLines: 3, hint: 'Tags: {date}, {buyer}, {type}, {rate}, {company}'),
+                                const SizedBox(height: 10),
+                                _customField('Buyer Trade Confirmation', _buyerMsgCtrl, maxLines: 3, hint: 'Tags: {date}, {seller}, {type}, {rate}, {company}'),
                                 const SizedBox(height: 16),
-                                FilledButton(
-                                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
+                                const Divider(color: Color(0xFFE2E8F0)),
+                                const SizedBox(height: 10),
+
+                                const Text(
+                                  'LOGISTICS & LEDGER TEMPLATES',
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Color(0xFF047857), letterSpacing: 0.5),
+                                ),
+                                const SizedBox(height: 8),
+                                _customField('Truck Dispatch Advice (To Buyer)', _truckMsgCtrl, maxLines: 4, hint: 'Tags: {company}, {date}, {truck}, {qty}, {type}, {transporter}, {bill}'),
+                                const SizedBox(height: 10),
+                                _customField('Payment Receipt / Voucher', _paymentMsgCtrl, maxLines: 4, hint: 'Tags: {company}, {date}, {party}, {amount}, {mode}'),
+                                const SizedBox(height: 20),
+
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF047857),
+                                    minimumSize: const Size(double.infinity, 44),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.save_rounded, size: 16),
+                                  label: const Text('Save All SMS Templates', style: TextStyle(fontWeight: FontWeight.bold)),
                                   onPressed: () async {
                                     final prefs = await SharedPreferences.getInstance();
                                     await prefs.setString('sms_seller_template', _sellerMsgCtrl.text.trim());
                                     await prefs.setString('sms_buyer_template', _buyerMsgCtrl.text.trim());
+                                    await prefs.setString('sms_truck_template', _truckMsgCtrl.text.trim());
+                                    await prefs.setString('sms_payment_template', _paymentMsgCtrl.text.trim());
+
                                     setState(() {
                                       _sellerMsgTemplate = _sellerMsgCtrl.text.trim();
                                       _buyerMsgTemplate = _buyerMsgCtrl.text.trim();
+                                      _truckMsgTemplate = _truckMsgCtrl.text.trim();
+                                      _paymentMsgTemplate = _paymentMsgCtrl.text.trim();
                                     });
+
                                     Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(backgroundColor: Color(0xFF047857), content: Text('SMS Templates updated and saved!')),
+                                    );
                                   },
-                                  child: const Text('Save Templates'),
                                 ),
                               ],
                             ),
