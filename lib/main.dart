@@ -482,6 +482,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
 }
   StreamSubscription<QuerySnapshot>? _trucksSub;
   StreamSubscription<QuerySnapshot>? _paymentsSub;
+  StreamSubscription<QuerySnapshot>? _smsSub;
   StreamSubscription<DocumentSnapshot>? _metadataSub;
   String _syncHealthStatus = 'CONNECTED'; // 'CONNECTED', 'QUEUED', 'ERROR'
   String _syncHealthLabel = 'Live Synced'; 
@@ -1266,6 +1267,31 @@ if (pDate.isEmpty) {
         _syncHealthLabel = 'Offline Queued';
       });
     });
+    // 4. SMS Queue Stream (Picks up pending SMS on Android and dispatches automatically)
+    if (!kIsWeb && Platform.isAndroid) {
+      _smsSub = db
+          .collection('sms_queue')
+          .where('status', isEqualTo: 'PENDING')
+          .snapshots()
+          .listen((snapshot) {
+        if (snapshot.docs.isEmpty) return;
+
+        bool hasNewPending = false;
+        for (var doc in snapshot.docs) {
+          final incoming = SmsQueueItem.fromJson(doc.data());
+          if (!_smsQueue.any((q) => q.id == incoming.id)) {
+            _smsQueue.add(incoming);
+            hasNewPending = true;
+          }
+        }
+
+        if (hasNewPending) {
+          _processPendingSmsQueue();
+        }
+      }, onError: (e) {
+        debugPrint("Firestore SMS stream error: $e");
+      });
+    }
   }
   Future<void> _deleteDocumentFromFirestore(String collection, String id) async {
     try {
@@ -1297,6 +1323,7 @@ if (pDate.isEmpty) {
     _cStatementNameCtrl.dispose();
     _partySearchCtrl.dispose();
     _paySearchCtrl.dispose();
+    _smsSub?.cancel();
     super.dispose();
   }
   bool _dashShowQuickTrade = false;
@@ -2975,6 +3002,44 @@ Future<void> _recordSyncTimestamp() async {
     });
   }
 }
+// ---------------- AUTOMATIC CLOUD SMS QUEUE HELPER ----------------
+  void _queueNotificationSms({required String phone, required String message}) {
+    final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    final targetPhone = cleanPhone.length >= 10 
+        ? cleanPhone.substring(cleanPhone.length - 10) 
+        : cleanPhone;
+
+    if (targetPhone.length != 10) return; // Ignores invalid phone numbers
+
+    final queueId = '${DateTime.now().millisecondsSinceEpoch}_${UniqueKey().toString().substring(1, 5)}';
+    final newItem = SmsQueueItem(
+      id: queueId,
+      phone: targetPhone,
+      message: message.trim(),
+      status: 'PENDING',
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+    );
+
+    setState(() {
+      _smsQueue.add(newItem);
+    });
+
+    // 1. Instantly push to Firestore cloud collection (from Desktop / iPad)
+    if (Firebase.apps.isNotEmpty) {
+      FirebaseFirestore.instance
+          .collection('sms_queue')
+          .doc(newItem.id)
+          .set(newItem.toJson());
+    }
+
+    // 2. Dual-save to local drive vault
+    _commitToLocalDrive();
+
+    // 3. If running locally on Android phone, dispatch immediately
+    if (!kIsWeb && Platform.isAndroid) {
+      _processPendingSmsQueue();
+    }
+  }
   Future<void> _processPendingSmsQueue() async {
     if (kIsWeb || !Platform.isAndroid) return;
 
@@ -5104,7 +5169,40 @@ return Column(
       _confBuyer = "";
       _confCocotype = "TENDER"; // Always maintain TENDER default
     });
+    // Trigger Automatic SMS Queue for Buyer & Seller
+      final sellerParty = _parties.firstWhere(
+        (p) => p.name.toString().trim().toUpperCase() == _confSeller.trim().toUpperCase(),
+        orElse: () => Party(name: "", type: "SELLER", phone: "", address: ""),
+      );
+      final buyerParty = _parties.firstWhere(
+        (p) => p.name.toString().trim().toUpperCase() == _confBuyer.trim().toUpperCase(),
+        orElse: () => Party(name: "", type: "BUYER", phone: "", address: ""),
+      );
 
+      final dateStr = _confDateCtrl.text.trim();
+      final rateStr = money(sRate);
+
+      // 1. Seller Message
+      if (sellerParty.phone.trim().isNotEmpty) {
+        final sMsg = _sellerMsgTemplate
+            .replaceAll('{date}', dateStr)
+            .replaceAll('{buyer}', _confBuyer.trim().toUpperCase())
+            .replaceAll('{type}', _confType)
+            .replaceAll('{rate}', rateStr)
+            .replaceAll('{company}', _myCompany.name);
+        _queueNotificationSms(phone: sellerParty.phone, message: sMsg);
+      }
+
+      // 2. Buyer Message
+      if (buyerParty.phone.trim().isNotEmpty) {
+        final bMsg = _buyerMsgTemplate
+            .replaceAll('{date}', dateStr)
+            .replaceAll('{seller}', _confSeller.trim().toUpperCase())
+            .replaceAll('{type}', _confType)
+            .replaceAll('{rate}', rateStr)
+            .replaceAll('{company}', _myCompany.name);
+        _queueNotificationSms(phone: buyerParty.phone, message: bMsg);
+      }
     await _commitToLocalDrive();
 
     if (mounted) {
@@ -7123,6 +7221,20 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
 
                         _commitToLocalDrive();
                         _calculateOverdueBills(_trucks);
+                        // Optional: Automatic Dispatch SMS to Buyer
+      final matchedBuyer = _parties.firstWhere(
+        (p) => p.name.toString().trim().toUpperCase() == bName,
+        orElse: () => Party(name: "", type: "BUYER", phone: "", address: ""),
+      );
+      if (matchedBuyer.phone.trim().isNotEmpty) {
+        final dispatchMsg = "${_myCompany.name} DISPATCH ADVICE:\n"
+            "Date: ${_tDateCtrl.text.trim()}\n"
+            "Truck: ${_tTruckCtrl.text.trim().toUpperCase()}\n"
+            "Qty: ${_tQtyCtrl.text.trim()} Nuts (${_tCoconutType})\n"
+            "Transporter: $tName\n"
+            "Bill: Rs. ${money(bBill)}";
+        _queueNotificationSms(phone: matchedBuyer.phone, message: dispatchMsg);
+      }
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Truck entry recorded.')),
                         );
@@ -8791,6 +8903,20 @@ Expanded(
                       });
 
                       _commitToLocalDrive();
+                      // Optional: Automatic Payment Receipt SMS
+      final targetParty = _payType.contains("SELLER") ? cleanSeller : cleanBuyer;
+      final matchedParty = _parties.firstWhere(
+        (p) => p.name.toString().trim().toUpperCase() == targetParty,
+        orElse: () => Party(name: "", type: "", phone: "", address: ""),
+      );
+      if (matchedParty.phone.trim().isNotEmpty) {
+        final payMsg = "${_myCompany.name} PAYMENT RECEIPT:\n"
+            "Date: $pDate\n"
+            "Party: $targetParty\n"
+            "Amount: Rs. ${money(splitAmts.first)}\n"
+            "Mode: $_payMode";
+        _queueNotificationSms(phone: matchedParty.phone, message: payMsg);
+      }
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Transaction saved successfully!')),
                       );
@@ -12367,7 +12493,7 @@ Expanded(
                   allowSharing: true,
                   allowPrinting: true,
                   initialPageFormat: PdfPageFormat.a4,
-                  pdfFileName: 'SELLER_STATEMENT.pdf',
+                  pdfFileName: '${(sellerName.trim().isNotEmpty && sellerName != "ALL SELLERS" ? sellerName : (buyerFilter.isNotEmpty ? buyerFilter : "SELLER")).trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '').replaceAll(' ', '_').toUpperCase()}_STATEMENT.pdf',
                 ),
               ),
             ],
@@ -12486,7 +12612,14 @@ Expanded(
           child: pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('STATEMENT OF ACCOUNT', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
+              pw.Text(
+                isBuyerOnlyMode
+                    ? '${buyerFilter.toUpperCase()} STATEMENT'
+                    : (seller.trim().isNotEmpty && seller != 'ALL SELLERS'
+                        ? '${seller.toUpperCase()} STATEMENT'
+                        : 'SELLER STATEMENT'),
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
+              ),
               pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
             ],
           ),
@@ -12520,7 +12653,14 @@ Expanded(
             child: pw.Container(
               padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.fromBorderSide(pw.BorderSide(color: greenBorder, width: 1))),
-              child: pw.Text('STATEMENT OF ACCOUNT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+              child: pw.Text(
+                isBuyerOnlyMode
+                    ? '${buyerFilter.toUpperCase()} STATEMENT'
+                    : (seller.trim().isNotEmpty && seller != 'ALL SELLERS'
+                        ? '${seller.toUpperCase()} STATEMENT'
+                        : 'SELLER STATEMENT OF ACCOUNT'),
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen),
+              ),
             ),
           ),
           pw.SizedBox(height: 8),
@@ -12882,7 +13022,7 @@ if (!hidePaid)
                                 allowSharing: true,
                                 allowPrinting: true,
                                 initialPageFormat: PdfPageFormat.a4,
-                                pdfFileName: 'CONSOLIDATED_BUYER_STATEMENT.pdf',
+                                pdfFileName: '${buyerName.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '').replaceAll(' ', '_').toUpperCase()}_CONSOLIDATED_STATEMENT.pdf',
                               ),
                             ),
                           ],
@@ -12920,7 +13060,7 @@ if (!hidePaid)
                   allowSharing: true,
                   allowPrinting: true,
                   initialPageFormat: PdfPageFormat.a4,
-                  pdfFileName: 'BUYER_STATEMENT.pdf',
+                  pdfFileName: '${buyerName.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '').replaceAll(' ', '_').toUpperCase()}_STATEMENT.pdf',
                 ),
               ),
             ],
@@ -12987,7 +13127,12 @@ if (!hidePaid)
           child: pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('STATEMENT OF ACCOUNT', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
+              pw.Text(
+                buyer.trim().isNotEmpty && buyer != 'ALL BUYERS'
+                    ? '${buyer.toUpperCase()} STATEMENT'
+                    : 'BUYER STATEMENT',
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
+              ),
               pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600)),
             ],
           ),
@@ -13021,7 +13166,12 @@ if (!hidePaid)
             child: pw.Container(
               padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE), border: pw.Border.fromBorderSide(pw.BorderSide(color: greenBorder, width: 1))),
-              child: pw.Text('STATEMENT OF ACCOUNT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen)),
+              child: pw.Text(
+                buyer.trim().isNotEmpty && buyer != 'ALL BUYERS'
+                    ? '${buyer.toUpperCase()} STATEMENT'
+                    : 'BUYER STATEMENT OF ACCOUNT',
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen),
+              ),
             ),
           ),
           pw.SizedBox(height: 8),
