@@ -4691,12 +4691,16 @@ void _updateNextInvoiceNumber() {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header Bar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [          
+          // Header Bar (Overflow-Proof Wrap for Mobile & Desktop)
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(6),
@@ -4706,26 +4710,30 @@ void _updateNextInvoiceNumber() {
                     ),
                     child: const Icon(
                       Icons.assignment_return_outlined,
-                      size: 16,
+                      size: 15,
                       color: Color(0xFFDC2626),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'PAID ON BEHALF (RECEIVABLE)',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF991B1B),
-                      letterSpacing: 0.5,
+                  const Flexible(
+                    child: Text(
+                      'PAID ON BEHALF (RECEIVABLE)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF991B1B),
+                        letterSpacing: 0.4,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF2F2),
                       borderRadius: BorderRadius.circular(12),
@@ -4734,7 +4742,7 @@ void _updateNextInvoiceNumber() {
                     child: Text(
                       'Total: ${money(grandTotalOwed)}',
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w900,
                         color: Color(0xFFDC2626),
                       ),
@@ -4751,7 +4759,7 @@ void _updateNextInvoiceNumber() {
                     child: Text(
                       '${paidOnBehalfGroups.length} ${paidOnBehalfGroups.length == 1 ? "Party" : "Parties"}',
                       style: const TextStyle(
-                        fontSize: 10.5,
+                        fontSize: 10,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF64748B),
                       ),
@@ -7286,37 +7294,111 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
           const Text('Goods Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
           const SizedBox(height: 10),
           ..._invoiceGoods.asMap().entries.map((entry) {
-            final idx = entry.key; final item = entry.value;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: Row(
-                children: [
-                  Expanded(flex: 4, child: _customField(idx == 0 ? 'Description' : '', item.descCtrl, hint: 'COCONUT')),
-                  const SizedBox(width: 8),
-                  Expanded(flex: 2, child: _customField(idx == 0 ? 'Qty (Nuts)' : '', item.qtyCtrl, isNum: true)),
-                  const SizedBox(width: 8),
-                  Expanded(flex: 2, child: _customField(idx == 0 ? 'Rate (₹)' : '', item.rateCtrl, isNum: true)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: _customField(
-                      idx == 0 ? 'Amount' : '',
-                      TextEditingController(text: item.calculateAmount(_iDivisor) > 0 ? money(item.calculateAmount(_iDivisor)) : ''),
-                      readOnly: true,
+            final idx = entry.key;
+            final item = entry.value;
+            final amtStr = item.calculateAmount(_iDivisor) > 0 ? money(item.calculateAmount(_iDivisor)) : '₹0';
+
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                // On mobile / narrow cards (< 650px), stack into 2 spacious rows
+                if (constraints.maxWidth < 650) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _customField('Description', item.descCtrl, hint: 'COCONUT'),
+                            ),
+                            if (_invoiceGoods.length > 1) ...[
+                              const SizedBox(width: 6),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                                onPressed: () {
+                                  setState(() {
+                                    final removed = _invoiceGoods.removeAt(idx);
+                                    removed.dispose();
+                                  });
+                                },
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _customField('Qty (Nuts)', item.qtyCtrl, isNum: true),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _customField('Rate (₹)', item.rateCtrl, isNum: true),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SoftCapsuleBox(
+                          label: 'Calculated Amount',
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Text(
+                              amtStr,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // Desktop / Wide iPad: Single 4-column row
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    children: [
+                      Expanded(flex: 4, child: _customField(idx == 0 ? 'Description' : '', item.descCtrl, hint: 'COCONUT')),
+                      const SizedBox(width: 8),
+                      Expanded(flex: 2, child: _customField(idx == 0 ? 'Qty (Nuts)' : '', item.qtyCtrl, isNum: true)),
+                      const SizedBox(width: 8),
+                      Expanded(flex: 2, child: _customField(idx == 0 ? 'Rate (₹)' : '', item.rateCtrl, isNum: true)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 2,
+                        child: SoftCapsuleBox(
+                          label: idx == 0 ? 'Amount' : '',
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Text(
+                              amtStr,
+                              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_invoiceGoods.length > 1)
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                          onPressed: () {
+                            setState(() {
+                              final removed = _invoiceGoods.removeAt(idx);
+                              removed.dispose();
+                            });
+                          },
+                        ),
+                    ],
                   ),
-                  if (_invoiceGoods.length > 1)
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red, size: 18),
-                      onPressed: () {
-                        setState(() {
-                          final removed = _invoiceGoods.removeAt(idx);
-                          removed.dispose();
-                        });
-                      },
-                    ),
-                ],
-              ),
+                );
+              },
             );
           }),
           OutlinedButton(
@@ -8776,39 +8858,45 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'Transaction History',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(12),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Flexible(
+                          child: Text(
+                            'Transaction History',
+                            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        child: Text(
-                          '${payList.length} Entries',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${payList.length}',
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   SizedBox(
-                    width: isMobile ? 140 : 260,
+                    width: isMobile ? 125 : 260,
                     height: 36,
                     child: TextField(
                       controller: _paySearchCtrl,
                       onChanged: (_) => setState(() {}),
-                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       decoration: InputDecoration(
-                        hintText: 'Search ledger...',
-                        hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                        prefixIcon: const Icon(Icons.search, size: 16, color: Color(0xFF64748B)),
+                        hintText: 'Search...',
+                        hintStyle: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+                        prefixIcon: const Icon(Icons.search, size: 15, color: Color(0xFF64748B)),
+                        prefixIconConstraints: const BoxConstraints(minWidth: 30),
                         suffixIcon: _paySearchCtrl.text.isNotEmpty
                             ? InkWell(
                                 onTap: () => setState(() => _paySearchCtrl.clear()),
@@ -9466,129 +9554,85 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
         ),
         const SizedBox(height: 12),
         // PREVIOUS FINANCIAL YEAR PENDING BILLS TABLE (BUYER)
-    if (hasSpecificBuyer) ...[
-      Builder(
-        builder: (context) {
-          final priorBills = _getPreviousFYBuyerPendingTrucks(_repBuyer);
-          if (priorBills.isEmpty) return const SizedBox.shrink();
+        if (hasSpecificBuyer) ...[
+          Builder(
+            builder: (context) {
+              final priorBills = _getPreviousFYBuyerPendingTrucks(_repBuyer);
+              if (priorBills.isEmpty) return const SizedBox.shrink();
 
-          final double totalPriorBill = priorBills.fold(0.0, (s, i) => s + (i['bill'] as double));
-          final double totalPriorPaid = priorBills.fold(0.0, (s, i) => s + (i['paid'] as double));
-          final double totalPriorPending = priorBills.fold(0.0, (s, i) => s + (i['pending'] as double));
-          final String enteredFys = priorBills
-              .map((i) => getFYFromDate((i['truck'] as dynamic).date))
-              .toSet()
-              .join(', ');
-          Widget cellText(String text, {bool isBold = false, Color? color, TextAlign align = TextAlign.left}) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              text,
-              textAlign: align,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-                color: color ?? const Color(0xFF0F172A),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
+              final double totalPriorPending = priorBills.fold(0.0, (s, i) => s + (i['pending'] as double));
+              final String enteredFys = priorBills
+                  .map((i) => getFYFromDate((i['truck'] as dynamic).date))
+                  .toSet()
+                  .join(', ');
 
-          Widget cellHeader(String title, {TextAlign align = TextAlign.left}) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              title,
-              textAlign: align,
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF1E40AF),
-                letterSpacing: 0.4,
-              ),
-            ),
-          );
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFBFDBFE), width: 1.5),
-              boxShadow: const [
-                BoxShadow(color: Color(0x101D4ED8), blurRadius: 8, offset: Offset(0, 2)),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Card Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFBFDBFE), width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
                       children: [
-                        const Icon(Icons.history_rounded, color: Color(0xFF1D4ED8), size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-            'OUTSTANDING FY $enteredFys',
-            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFF1D4ED8), letterSpacing: 0.5),
-          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.history_rounded, color: Color(0xFF1D4ED8), size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'OUTSTANDING FY $enteredFys',
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFF1D4ED8)),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDBEAFE),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Total Due: ${money(totalPriorPending)}',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5, color: Color(0xFF1E40AF)),
+                          ),
+                        ),
                       ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFDBEAFE),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                    const SizedBox(height: 8),
+                    ...priorBills.map((b) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${b['date']} • ${b['seller']}',
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            'Due: ${money(b['pending'])}',
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFFDC2626)),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        'Total Due: ${money(totalPriorPending)}',
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF1E40AF)),
-                      ),
-                    ),
+                    )),
                   ],
                 ),
-                const SizedBox(height: 10),
-
-                // Full-Width Responsive Table (Fills 100% on iPad/PC, Scrollable on Android)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final double minWidth = 1010.0;
-            final double effectiveWidth = constraints.maxWidth < minWidth ? minWidth : constraints.maxWidth;
-            final bool needScroll = constraints.maxWidth < minWidth;
-
-            Widget tableWidget = SizedBox(
-              width: effectiveWidth,
-              child: _buildBuyerTableContent(displayedBuyerRows, visibleQty, visibleBills, visiblePaid, visibleBalance),
-            );
-
-            return needScroll
-                ? SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: tableWidget,
-                  )
-                : tableWidget;
-          },
-        ),
-      ),
-                    ),
-              ],
-            ),
-          );
-        },
-      ),
-    ],
+              );
+            },
+          ),
+        ],
         // FEATURE 8: Cross-State Pending Alert Card
         if (hasSpecificBuyer && otherStatePendingDues > 0.05) ...[
           Container(
@@ -9686,16 +9730,19 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                       ],
                     ),
                   ),
-                  FilledButton.icon(
+                  FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFFDC2626),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 14, vertical: 8),
+                      minimumSize: const Size(0, 34),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.check_circle_outline, size: 15),
-                    label: const Text('Reimburse / Clear', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     onPressed: () => _settleBuyerPaidOnBehalfDialog(item),
+                    child: Text(
+                      isMobile ? 'Clear' : 'Reimburse / Clear',
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
@@ -10105,23 +10152,42 @@ Expanded(
                     label: Text('Commission Summary', style: TextStyle(color: const Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: isMobile ? 11 : 12)),
                     onPressed: _showAllSellersCommissionDialog,
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
-                      Checkbox(
-                        value: _sellerPrintHidePaid,
-                        onChanged: (v) => setState(() => _sellerPrintHidePaid = v ?? false),
-                        activeColor: const Color(0xFF047857),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Checkbox(
+                              value: _sellerPrintHidePaid,
+                              onChanged: (v) => setState(() => _sellerPrintHidePaid = v ?? false),
+                              activeColor: const Color(0xFF047857),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'Hide Paid in PDF',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                          ),
+                        ],
                       ),
-                      const Text('Hide Paid Details in PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                      const SizedBox(width: 6),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF0F172A),
+                          padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: 8),
+                          minimumSize: const Size(0, 36),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         icon: const Icon(Icons.print_rounded, size: 15),
-                        label: const Text('Print Statement'),
+                        label: Text(
+                          'Print Statement',
+                          style: TextStyle(fontSize: isMobile ? 11.5 : 13, fontWeight: FontWeight.bold),
+                        ),
                         onPressed: () => _openSellerReportPrintModal(
                           _repSeller.isEmpty ? "ALL SELLERS" : _repSeller,
                           _repSellerBuyerFilter,
@@ -10134,7 +10200,7 @@ Expanded(
                           visibleSellerBilled,
                           visibleSellerPaid,
                           visibleSellerBalance,
-                          _sellerPrintHidePaid, // <-- PASS FLAG TO MODAL
+                          _sellerPrintHidePaid,
                         ),
                       ),
                     ],
@@ -10146,136 +10212,85 @@ Expanded(
         ),
         const SizedBox(height: 12),
     // PREVIOUS FINANCIAL YEAR PENDING BILLS TABLE (SELLER)
-    if (hasSpecificSeller) ...[
-      Builder(
-        builder: (context) {
-          final priorBills = _getPreviousFYSellerPendingTrucks(_repSeller);
-          if (priorBills.isEmpty) return const SizedBox.shrink();
+        if (hasSpecificSeller) ...[
+          Builder(
+            builder: (context) {
+              final priorBills = _getPreviousFYSellerPendingTrucks(_repSeller);
+              if (priorBills.isEmpty) return const SizedBox.shrink();
 
-          final double totalPriorBill = priorBills.fold(0.0, (s, i) => s + (i['bill'] as double));
-          final double totalPriorPaid = priorBills.fold(0.0, (s, i) => s + (i['paid'] as double));
-          final double totalPriorPending = priorBills.fold(0.0, (s, i) => s + (i['pending'] as double));
-          final String enteredFys = priorBills
-              .map((i) => getFYFromDate((i['truck'] as dynamic).date))
-              .toSet()
-              .join(', ');
-          Widget cellText(String text, {bool isBold = false, Color? color, TextAlign align = TextAlign.left}) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              text,
-              textAlign: align,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-                color: color ?? const Color(0xFF0F172A),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
+              final double totalPriorPending = priorBills.fold(0.0, (s, i) => s + (i['pending'] as double));
+              final String enteredFys = priorBills
+                  .map((i) => getFYFromDate((i['truck'] as dynamic).date))
+                  .toSet()
+                  .join(', ');
 
-          Widget cellHeader(String title, {TextAlign align = TextAlign.left}) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              title,
-              textAlign: align,
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF78350F),
-                letterSpacing: 0.4,
-              ),
-            ),
-          );
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFBEB),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
-              boxShadow: const [
-                BoxShadow(color: Color(0x10B45309), blurRadius: 8, offset: Offset(0, 2)),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Card Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
                       children: [
-                        const Icon(Icons.history_rounded, color: Color(0xFFB45309), size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-            'OUTSTANDING FY $enteredFys',
-            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309), letterSpacing: 0.5),
-          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.history_rounded, color: Color(0xFFB45309), size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'OUTSTANDING FY $enteredFys',
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309)),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Total Pending: ${money(totalPriorPending)}',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5, color: Color(0xFF92400E)),
+                          ),
+                        ),
                       ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFFDE68A)),
+                    const SizedBox(height: 8),
+                    ...priorBills.map((b) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${b['date']} • ${b['buyer']}',
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            'Pending: ${money(b['pending'])}',
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFFDC2626)),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        'Total Pending: ${money(totalPriorPending)}',
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF92400E)),
-                      ),
-                    ),
+                    )),
                   ],
                 ),
-                const SizedBox(height: 10),
-
-                // Full-Width Responsive Table (100% on iPad/PC, Smooth horizontal scroll on Android)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final double minWidth = 1180.0;
-            final double effectiveWidth = constraints.maxWidth < minWidth ? minWidth : constraints.maxWidth;
-            final bool needScroll = constraints.maxWidth < minWidth;
-
-            Widget tableWidget = SizedBox(
-              width: effectiveWidth,
-              child: _buildSellerTableContent(
-                displayedSellerRows,
-                visibleSellerQty,
-                visibleSellerComm,
-                visibleSellerBilled,
-                visibleSellerPaid,
-                visibleSellerBalance,
-              ),
-            );
-
-            return needScroll
-                ? SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: tableWidget,
-                  )
-                : tableWidget;
-          },
-        ),
-      ),
-                    ),
-              ],
-            ),
-          );
-        },
-      ),
-    ],
+              );
+            },
+          ),
+        ],
        // 3. Seller Advances Banners (Recognizes ADJUSTED)
         if (_repSeller.trim().isNotEmpty && sellerAdvanceEntries.isNotEmpty) ...[
           Builder(
@@ -11422,29 +11437,54 @@ Expanded(
               const SizedBox(height: 20),
 
               if (isSingleMonthSelected) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
-                    Text('Statement for: $_selectedTransportMonth', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF047857))),
+                    Text(
+                      'Statement for: $_selectedTransportMonth',
+                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                    ),
                     TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                       onPressed: () => setState(() => _selectedTransportMonth = "ALL MONTHS"),
-                      icon: const Icon(Icons.arrow_back, size: 16),
-                      label: const Text('View All Months', style: TextStyle(fontWeight: FontWeight.bold)),
+                      icon: const Icon(Icons.arrow_back, size: 15),
+                      label: const Text('View All Months', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
 
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFA7F3D0))),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 16,
+                    runSpacing: 8,
                     children: [
-                      Text('Total Trips: ${singleMonthData?['trips']?.length ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      Text('Freight: ${money(sExp)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      Text('Paid for this Month: ${money(sPaid)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF047857))),
-                      Text('Pending Balance: ${money(sBal)}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: sBal > 0 ? Colors.red : const Color(0xFF047857))),
+                      Text('Total Trips: ${singleMonthData?['trips']?.length ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                      Text('Freight: ${money(sExp)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                      Text('Paid: ${money(sPaid)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF047857))),
+                      Text(
+                        'Pending: ${money(sBal)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                          color: sBal > 0 ? Colors.red : const Color(0xFF047857),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -11709,41 +11749,106 @@ Expanded(
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        insetPadding: const EdgeInsets.all(24),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 12 : 24,
+          vertical: isMobile ? 24 : 24,
+        ),
         child: Container(
-          width: 920,
-          height: 820,
-          padding: const EdgeInsets.all(20),
+          width: isMobile ? MediaQuery.of(context).size.width : 920,
+          height: MediaQuery.of(context).size.height * (isMobile ? 0.78 : 0.85),
+          padding: EdgeInsets.all(isMobile ? 12 : 20),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Transporter Statement — $transporterName ($selectedMonth)',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Transporter Statement',
+                          style: TextStyle(
+                            fontSize: isMobile ? 14.5 : 18,
+                            fontWeight: FontWeight.w900,
+                            color: const Color(0xFF0F172A),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '$transporterName • $selectedMonth',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF047857),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!kIsWeb && Platform.isWindows) ...[
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
+                      icon: const Icon(Icons.save_alt_rounded, size: 15),
+                      label: const Text('Save to Folder', style: TextStyle(fontSize: 11.5)),
+                      onPressed: () async {
+                        final pdfBytes = await _generateTransportPdfReport(
+                          PdfPageFormat.a4,
+                          transporterName,
+                          selectedMonth,
+                          rows,
+                          totalExp,
+                          totalPaid,
+                          balanceDue,
+                        );
+                        if (!context.mounted) return;
+                        await _exportPdfToCustomDirOrShare(
+                          context: context,
+                          fileName: 'TRANSPORTER_STATEMENT_${selectedMonth.replaceAll(' ', '_')}.pdf',
+                          pdfBytes: pdfBytes,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  IconButton.filledTonal(
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      minimumSize: const Size(34, 34),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF0F172A)),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
                 ],
               ),
-              const Divider(),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
               Expanded(
-                child: PdfPreview(
-                  build: (format) => _generateTransportPdfReport(
-                    format,
-                    transporterName,
-                    selectedMonth,
-                    rows,
-                    totalExp,
-                    totalPaid,
-                    balanceDue,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: PdfPreview(
+                    build: (format) => _generateTransportPdfReport(
+                      format,
+                      transporterName,
+                      selectedMonth,
+                      rows,
+                      totalExp,
+                      totalPaid,
+                      balanceDue,
+                    ),
+                    canChangeOrientation: false,
+                    canChangePageFormat: false,
+                    canDebug: false,
+                    allowSharing: true,
+                    allowPrinting: true,
+                    initialPageFormat: PdfPageFormat.a4,
+                    pdfFileName: 'TRANSPORTER_STATEMENT_${selectedMonth.replaceAll(' ', '_')}.pdf',
                   ),
-                  canChangeOrientation: false,
-                  canChangePageFormat: false,
-                  canDebug: false,
-                  allowSharing: true,
-                  allowPrinting: true,
-                  initialPageFormat: PdfPageFormat.a4,
-                  pdfFileName: 'TRANSPORTER_STATEMENT_${selectedMonth.replaceAll(' ', '_')}.pdf',
                 ),
               ),
             ],
@@ -11765,95 +11870,192 @@ Expanded(
     final pdf = pw.Document();
     const greenBorder = PdfColor.fromInt(0xFF4D8B61);
     const titleGreen = PdfColor.fromInt(0xFF126B35);
+    const redAccent = PdfColor.fromInt(0xFFBD2020);
 
-    pdf.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      build: (ctx) => pw.Container(
-        padding: const pw.EdgeInsets.all(10),
-        decoration: const pw.BoxDecoration(border: pw.Border.fromBorderSide(pw.BorderSide(color: greenBorder, width: 1.5))),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          children: [
-            pw.Center(
-              child: pw.Text(
-                _myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name,
-                style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: titleGreen, letterSpacing: 0.5),
+    final bool isSingleMonth = selectedMonth != "ALL MONTHS" && rows.length == 1;
+    final List<dynamic> singleMonthTrips = isSingleMonth
+        ? (rows.first['trips'] as List<dynamic>? ?? [])
+        : [];
+    final List<TransportPayment> singleMonthPayments = isSingleMonth
+        ? (rows.first['payments'] as List<TransportPayment>? ?? [])
+        : [];
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        footer: (context) => pw.Container(
+          margin: const pw.EdgeInsets.only(top: 6),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'TRANSPORTER STATEMENT - ${transporter.toUpperCase()}',
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
               ),
-            ),
-            pw.SizedBox(height: 3),
-            pw.Center(
-              child: pw.Text(
-                selectedMonth != "ALL MONTHS"
-                    ? 'TRANSPORTER FREIGHT STATEMENT | $selectedMonth'
-                    : 'TRANSPORTER MONTHLY FREIGHT STATEMENT (ALL MONTHS)',
-                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: titleGreen),
+              pw.Text(
+                'Page ${context.pageNumber} of ${context.pagesCount}',
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
               ),
+            ],
+          ),
+        ),
+        build: (ctx) => [
+          pw.Center(
+            child: pw.Text(
+              _myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name,
+              style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: titleGreen, letterSpacing: 0.5),
             ),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(6),
-              color: const PdfColor.fromInt(0xFFEBF5EE),
-              child: pw.Text(
-                'TRANSPORTER : ${transporter.toUpperCase()}',
-                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: titleGreen),
+          ),
+          pw.SizedBox(height: 3),
+          pw.Center(
+            child: pw.Text(
+              selectedMonth != "ALL MONTHS"
+                  ? 'TRANSPORTER FREIGHT STATEMENT | $selectedMonth'
+                  : 'TRANSPORTER MONTHLY FREIGHT STATEMENT (ALL MONTHS)',
+              style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(6),
+            color: const PdfColor.fromInt(0xFFEBF5EE),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'TRANSPORTER : ${transporter.toUpperCase()}',
+                  style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
+                ),
+                pw.Text(
+                  'STATE : ${_selectedState.toUpperCase()}',
+                  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 8),
+
+          // 1. Monthly Summary Table
+          pw.Table(
+            border: pw.TableBorder.all(color: greenBorder, width: 0.8),
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
+                children: [
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('MONTH', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TRIPS', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('FREIGHT EXPENSE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('PENDING BALANCE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                ],
               ),
+              ...rows.map((row) {
+                return pw.TableRow(
+                  children: [
+                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(row['month'] ?? '', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${row['tripsCount']} Trips', style: const pw.TextStyle(fontSize: 8.5))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['expense']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['paid']), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(pdfMoney(row['balance']), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                  ],
+                );
+              }),
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
+                children: [
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('-')),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(totalExp)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: balanceDue > 0 ? redAccent : titleGreen))),
+                ],
+              ),
+            ],
+          ),
+
+          // 2. Itemized Loads Table (When a specific month like SEPTEMBER 2026 is selected)
+          if (isSingleMonth && singleMonthTrips.isNotEmpty) ...[
+            pw.SizedBox(height: 14),
+            pw.Text(
+              'ITEMIZED TRIPS / LOADS DISPATCHED ($selectedMonth)',
+              style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
             ),
-            pw.SizedBox(height: 8),
+            pw.SizedBox(height: 4),
             pw.Table(
-              border: const pw.TableBorder(
-                horizontalInside: pw.BorderSide(color: greenBorder, width: 1),
-                verticalInside: pw.BorderSide(color: greenBorder, width: 1),
-              ),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1.5),
+                1: pw.FlexColumnWidth(2.0),
+                2: pw.FlexColumnWidth(2.8),
+                3: pw.FlexColumnWidth(2.8),
+                4: pw.FlexColumnWidth(2.0),
+              },
+              border: pw.TableBorder.all(color: greenBorder, width: 0.8),
               children: [
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('MONTH', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('TRIPS', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('FREIGHT EXPENSE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('CUMULATIVE BALANCE (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('DATE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('TRUCK NO', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('SUPPLIER', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('BUYER', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('FREIGHT (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                   ],
                 ),
-                ...rows.map((row) {
-                  return pw.TableRow(
-                    children: [
-                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(row['month'] ?? '', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${row['tripsCount']} Trips', style: const pw.TextStyle(fontSize: 8.5))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['expense']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['paid']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(pdfMoney(row['balance']), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold))),
-                    ],
-                  );
-                }),
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEBF5EE)),
+                ...singleMonthTrips.map((t) => pw.TableRow(
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('TOTAL', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('-')),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(totalExp)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(totalPaid)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Rs. ${pdfMoney(balanceDue)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(formatDisplayDate(t.date).replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.truck.toString().replaceAll('—', '-'), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.supplier.toString().replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t.buyer.toString().replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(pdfMoney(t.transportExp), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                   ],
-                ),
+                )),
               ],
             ),
-            pw.Spacer(),
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 3),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Authorized Signature', style: const pw.TextStyle(fontSize: 8.5)),
-                  pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
-                ],
-              ),
+          ],
+
+          // 3. Itemized Payments Credited Table
+          if (isSingleMonth && singleMonthPayments.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text(
+              'PAYMENTS CREDITED AGAINST $selectedMonth',
+              style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: titleGreen),
+            ),
+            pw.SizedBox(height: 4),
+            pw.Table(
+              border: pw.TableBorder.all(color: greenBorder, width: 0.8),
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF2F7F3)),
+                  children: [
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('PAYMENT DATE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('BANK / MODE', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('AMOUNT PAID (Rs)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  ],
+                ),
+                ...singleMonthPayments.map((p) => pw.TableRow(
+                  children: [
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(formatDisplayDate(p.date).replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(p.bank.replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text('Rs. ${pdfMoney(p.amount)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: titleGreen))),
+                  ],
+                )),
+              ],
             ),
           ],
-        ),
+
+          pw.SizedBox(height: 18),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('Authorized Signature', style: const pw.TextStyle(fontSize: 8.5)),
+              pw.Text('For ${_myCompany.statementName.isNotEmpty ? _myCompany.statementName : _myCompany.name}', style: const pw.TextStyle(fontSize: 8.5)),
+            ],
+          ),
+        ],
       ),
-    ));
+    );
     return pdf.save();
   }
   // ---------------- 7. ESTIMATE VIEW ----------------
@@ -12252,10 +12454,16 @@ Expanded(
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Statement — $sellerName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  Expanded(
+                    child: Text(
+                      'Statement — $sellerName',
+                      style: TextStyle(fontSize: isMobile ? 14 : 18, fontWeight: FontWeight.w900),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // FEATURE 6: Save to Custom Windows Folder button
                       if (!kIsWeb && Platform.isWindows)
                         FilledButton.icon(
                           style: FilledButton.styleFrom(backgroundColor: const Color(0xFF047857)),
@@ -12549,15 +12757,15 @@ Expanded(
 
                 return pw.TableRow(
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'], style: const pw.TextStyle(fontSize: 8))),
-                    if (hasSellerBought) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(sourceBought, style: pw.TextStyle(fontSize: 8, fontWeight: sourceBought != '-' ? pw.FontWeight.bold : pw.FontWeight.normal))),
+                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'].toString().replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    if (hasSellerBought) pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(sourceBought.replaceAll('—', '-'), style: pw.TextStyle(fontSize: 8, fontWeight: sourceBought != '-' ? pw.FontWeight.bold : pw.FontWeight.normal))),
                     pw.Padding(
-  padding: const pw.EdgeInsets.all(3.5),
-  child: pw.Text(
-    (isBuyerOnlyMode ? (row['truck'].supplier ?? '-') : (row['buyer'] ?? '-')).toString().toUpperCase(),
-    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-  ),
-),
+                      padding: const pw.EdgeInsets.all(3.5),
+                      child: pw.Text(
+                        (isBuyerOnlyMode ? (row['truck'].supplier ?? '-') : (row['buyer'] ?? '-')).toString().replaceAll('—', '-').toUpperCase(),
+                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                      ),
+                    ),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${row['qty']} NUTS', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['commission'].replaceAll('₹', 'Rs. '), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(row['truck'].supplierBill)}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
@@ -12631,13 +12839,13 @@ if (!hidePaid)
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text(
-                          '• Advance Paid: Rs. ${pdfMoney(origAmt)} on $dt via ${adv.mode}',
+                          '- Advance Paid: Rs. ${pdfMoney(origAmt)} on $dt via ${adv.mode}',
                           style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
                         ),
                         ...adjustedEntries.map((a) => pw.Padding(
                           padding: const pw.EdgeInsets.only(left: 8, top: 1),
                           child: pw.Text(
-                            '↳ Adjusted: Rs. ${pdfMoney(a.amount)} on ${formatDisplayDate(a.date)} against Buyer: ${a.buyer}',
+                            '-> Adjusted: Rs. ${pdfMoney(a.amount)} on ${formatDisplayDate(a.date)} against Buyer: ${a.buyer}',
                             style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800),
                           ),
                         )),
@@ -13061,8 +13269,8 @@ if (!hidePaid)
 
                 return pw.TableRow(
                   children: [
-                    pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'], style: const pw.TextStyle(fontSize: 8))),
-                    pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['seller'] ?? '-', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                   pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(row['date'].toString().replaceAll('—', '-'), style: const pw.TextStyle(fontSize: 8))),
+                    pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text((row['seller'] ?? '-').toString().replaceAll('—', '-'), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('${row['qty']} NUTS', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text('Rs. ${pdfMoney(row['billAmount'])}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                     pw.Padding(padding: const pw.EdgeInsets.all(3.5), child: pw.Text(paidText, style: pw.TextStyle(fontSize: 7.5, color: titleGreen, fontWeight: pw.FontWeight.bold))),
@@ -14871,80 +15079,99 @@ class NeoScaffold extends StatelessWidget {
   Widget _buildMobileTopBar(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.92),
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 14, offset: Offset(0, 4))],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF047857)]),
-                  borderRadius: BorderRadius.circular(10),
+          // Left side wrapped in Expanded so it never pushes the right buttons off-screen
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF047857)]),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.eco_rounded, color: Colors.white, size: 15),
                 ),
-                child: const Icon(Icons.eco_rounded, color: Colors.white, size: 16),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        activeTab.toUpperCase(),
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              activeTab.toUpperCase(),
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              syncHealthStatus == 'CONNECTED' ? '● Live' : '● Sync',
+                              style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          syncHealthStatus == 'CONNECTED' ? '● Live' : '● Sync',
-                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
-                        ),
+                      Text(
+                        'FY $financialYear • ${activeState == "Andhra Pradesh" ? "AP" : "TN"}',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                  Text(
-                    'FY $financialYear • $activeState',
-                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 6),
+          // Right side with compact touch targets
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               InkWell(
-                borderRadius: BorderRadius.circular(9),
+                borderRadius: BorderRadius.circular(8),
                 onTap: () => onStateChanged(activeState == "Andhra Pradesh" ? "Tamil Nadu" : "Andhra Pradesh"),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(9),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     activeState == "Andhra Pradesh" ? "⇄ AP" : "⇄ TN",
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
                   ),
                 ),
               ),
+              const SizedBox(width: 2),
               IconButton(
-                icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF0F172A)),
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.settings_outlined, size: 18, color: Color(0xFF0F172A)),
                 onPressed: onSettings,
               ),
               IconButton(
-                icon: const Icon(Icons.lock_outline_rounded, size: 19, color: Color(0xFFDC2626)),
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFFDC2626)),
                 onPressed: onLock,
               ),
             ],
@@ -15092,114 +15319,124 @@ class _SoftCapsuleBoxState extends State<SoftCapsuleBox> {
   Widget build(BuildContext context) {
     final iconData = _resolveSmartIcon(widget.label);
     final unitBadge = _resolveSmartUnit(widget.label);
-    
-    return RepaintBoundary( // <-- ADD THIS: Isolates focus glow to GPU layer
-      child: MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: Focus(
-        onFocusChange: (focused) {
-          if (mounted) setState(() => _isFocused = focused);
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(0, _isFocused ? -2.0 : 0.0, 0),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: _isFocused
-                ? Colors.white
-                : (_isHovered ? const Color(0xFFE8ECE9) : const Color(0xFFF3F6F4)),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: _isFocused ? const Color(0xFF10B981) : Colors.transparent,
-              width: 1.5,
-            ),
-            boxShadow: _isFocused
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF10B981).withOpacity(0.18),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : [],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                width: 34,
-                height: 34,
+
+    return RepaintBoundary(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isTight = constraints.maxWidth < 155;
+          final bool isUltraTight = constraints.maxWidth < 105;
+
+          return MouseRegion(
+            onEnter: (_) => setState(() => _isHovered = true),
+            onExit: (_) => setState(() => _isHovered = false),
+            child: Focus(
+              onFocusChange: (focused) {
+                if (mounted) setState(() => _isFocused = focused);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                transform: Matrix4.translationValues(0, _isFocused ? -1.5 : 0.0, 0),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTight ? 8 : 12,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: _isFocused
-                      ? const Color(0xFF059669)
-                      : const Color(0xFF10B981).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10),
+                      ? Colors.white
+                      : (_isHovered ? const Color(0xFFE8ECE9) : const Color(0xFFF3F6F4)),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _isFocused ? const Color(0xFF10B981) : Colors.transparent,
+                    width: 1.5,
+                  ),
+                  boxShadow: _isFocused
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFF10B981).withOpacity(0.16),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ]
+                      : const [],
                 ),
-                child: Icon(
-                  iconData,
-                  size: 16,
-                  color: _isFocused ? Colors.white : const Color(0xFF059669),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    if (widget.label.trim().isNotEmpty)
-                      AnimatedDefaultTextStyle(
+                    if (!isUltraTight) ...[
+                      AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.6,
+                        curve: Curves.easeOut,
+                        width: isTight ? 28 : 34,
+                        height: isTight ? 28 : 34,
+                        decoration: BoxDecoration(
                           color: _isFocused
                               ? const Color(0xFF059669)
-                              : const Color(0xFF64748B),
+                              : const Color(0xFF10B981).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(isTight ? 8 : 10),
                         ),
-                        child: Text(
-                          widget.label.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Icon(
+                          iconData,
+                          size: isTight ? 14 : 16,
+                          color: _isFocused ? Colors.white : const Color(0xFF059669),
                         ),
                       ),
-                    const SizedBox(height: 1),
-                    widget.child,
+                      SizedBox(width: isTight ? 6 : 10),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.label.trim().isNotEmpty)
+                            Text(
+                              widget.label.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.5,
+                                color: _isFocused
+                                    ? const Color(0xFF059669)
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          const SizedBox(height: 1),
+                          widget.child,
+                        ],
+                      ),
+                    ),
+                    if (unitBadge != null && !isTight) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                        decoration: BoxDecoration(
+                          color: _isFocused
+                              ? const Color(0xFFECFDF5)
+                              : const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          unitBadge,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: _isFocused
+                                ? const Color(0xFF047857)
+                                : const Color(0xFF475569),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              if (unitBadge != null) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
-                  decoration: BoxDecoration(
-                    color: _isFocused
-                        ? const Color(0xFFECFDF5)
-                        : const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    unitBadge,
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w800,
-                      color: _isFocused
-                          ? const Color(0xFF047857)
-                          : const Color(0xFF475569),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
-    ));
+    );
   }
 }
 
@@ -15306,6 +15543,7 @@ class SoftChipSelector extends StatelessWidget {
     );
   }
 }
+
 // ============================================================================
 // UPPERCASE FORMATTER & TACTILE AUTOCOMPLETE ENGINE
 // ============================================================================
