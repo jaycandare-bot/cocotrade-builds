@@ -1175,99 +1175,61 @@ if (pDate.isEmpty) {
       });
     });
 
-    // 2. Trucks Stream (Respects tombstones, NO DESTRUCTIVE CALLS)
+    // 2. Trucks Stream (Reconciles active set & writes directly to local storage)
     _trucksSub = db.collection('trucks').snapshots().listen((snapshot) {
-      // ANTI-WIPE GUARD: Never wipe local data if cloud returns empty
       if (snapshot.docs.isEmpty) return;
 
-      final Map<String, TruckEntry> currentTrucksMap = {
-        for (var t in _trucks) (t as TruckEntry).id: t
-      };
-
+      final Map<String, TruckEntry> incomingTrucks = {};
       for (var doc in snapshot.docs) {
-        final remoteData = doc.data();
-        final remoteEntry = TruckEntry.fromJson(remoteData);
-
-        // Handle Tombstone Deletion across devices
-        if (remoteEntry.isDeleted) {
-          currentTrucksMap.remove(remoteEntry.id);
-          continue;
-        }
-
-        if (!currentTrucksMap.containsKey(remoteEntry.id)) {
-          currentTrucksMap[remoteEntry.id] = remoteEntry;
-        } else {
-          // Last-Write-Wins via UTC comparison
-          final localEntry = currentTrucksMap[remoteEntry.id]!;
-          final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
-          final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
-
-          if (remoteTime.isAfter(localTime)) {
-            currentTrucksMap[remoteEntry.id] = remoteEntry;
-          }
+        final t = TruckEntry.fromJson(doc.data());
+        if (!t.isDeleted) {
+          incomingTrucks[t.id] = t;
         }
       }
 
       setState(() {
         _syncHealthStatus = 'CONNECTED';
         _syncHealthLabel = 'Live Synced';
-        _trucks = currentTrucksMap.values.toList();
+        _trucks = incomingTrucks.values.toList();
         _calculateOverdueBills(_trucks);
       });
+
+      // Writes directly to Android storage so reopening the app never reverts to old data
+      if (!kIsWeb) {
+        LocalDriveManager.writeToDrive(_exportStateMap());
+      }
     }, onError: (e) {
       debugPrint("Firestore trucks stream error: $e");
-      setState(() {
-        _syncHealthStatus = 'QUEUED';
-        _syncHealthLabel = 'Offline Queued';
-      });
     });
 
-    // 3. Payments Stream (Respects tombstones, NO DESTRUCTIVE CALLS)
+    // 3. Payments Stream (Eliminates ghost records & writes directly to local storage)
     _paymentsSub = db.collection('payments').snapshots().listen((snapshot) {
-      // ANTI-WIPE GUARD: Never wipe local data if cloud returns empty
       if (snapshot.docs.isEmpty) return;
 
-      final Map<String, PaymentEntry> currentPaymentsMap = {
-        for (var p in _payments) (p as PaymentEntry).id: p
-      };
-
+      final Map<String, PaymentEntry> incomingPayments = {};
       for (var doc in snapshot.docs) {
-        final remoteData = doc.data();
-        final remoteEntry = PaymentEntry.fromJson(remoteData);
-
-        // Handle Tombstone Deletion across devices
-        if (remoteEntry.isDeleted) {
-          currentPaymentsMap.remove(remoteEntry.id);
-          continue;
-        }
-
-        if (!currentPaymentsMap.containsKey(remoteEntry.id)) {
-          currentPaymentsMap[remoteEntry.id] = remoteEntry;
-        } else {
-          final localEntry = currentPaymentsMap[remoteEntry.id]!;
-          final localTime = DateTime.tryParse(localEntry.updatedAt) ?? DateTime(1970);
-          final remoteTime = DateTime.tryParse(remoteEntry.updatedAt) ?? DateTime(1970);
-
-          if (remoteTime.isAfter(localTime)) {
-            currentPaymentsMap[remoteEntry.id] = remoteEntry;
-          }
+        final p = PaymentEntry.fromJson(doc.data());
+        if (!p.isDeleted) {
+          incomingPayments[p.id] = p;
         }
       }
 
       setState(() {
         _syncHealthStatus = 'CONNECTED';
         _syncHealthLabel = 'Live Synced';
-        _payments = currentPaymentsMap.values.toList();
+        // Directly matches cloud count (e.g. 292), eliminating the 10 ghost records on Android
+        _payments = incomingPayments.values.toList();
         _calculateOverdueBills(_trucks);
       });
+
+      // Writes directly to Android storage so reopening the app never reverts to old data
+      if (!kIsWeb) {
+        LocalDriveManager.writeToDrive(_exportStateMap());
+      }
     }, onError: (e) {
       debugPrint("Firestore payments stream error: $e");
-      setState(() {
-        _syncHealthStatus = 'QUEUED';
-        _syncHealthLabel = 'Offline Queued';
-      });
     });
-    // 4. SMS Queue Stream (Picks up pending SMS on Android and dispatches automatically)
+    // 4. SMS Queue Stream: Listens for SMS queued from Desktop/iPad and fires from Android SIM
     if (!kIsWeb && Platform.isAndroid) {
       _smsSub = db
           .collection('sms_queue')
@@ -1276,18 +1238,13 @@ if (pDate.isEmpty) {
           .listen((snapshot) {
         if (snapshot.docs.isEmpty) return;
 
-        bool hasNewPending = false;
         for (var doc in snapshot.docs) {
           final incoming = SmsQueueItem.fromJson(doc.data());
           if (!_smsQueue.any((q) => q.id == incoming.id)) {
             _smsQueue.add(incoming);
-            hasNewPending = true;
           }
         }
-
-        if (hasNewPending) {
-          _processPendingSmsQueue();
-        }
+        _processPendingSmsQueue();
       }, onError: (e) {
         debugPrint("Firestore SMS stream error: $e");
       });
@@ -1332,6 +1289,7 @@ if (pDate.isEmpty) {
   bool _dashShowOverdue = false;
   bool _isSidebarExpanded = true;
   bool _hideSettledEntries = false;
+  bool _showAllPaymentsHistory = false;
   bool _isLoading = true;
   bool _isFirstLoginDone = false;
   bool _isLicensed = false;
@@ -2859,18 +2817,20 @@ if (!isMultiSplit && sortedPayments.isNotEmpty) {
     });
   }
   void _saveStateToHistory() {
-    try {
-      final currentJson = _generateFullDatabaseJson();
-      if (_undoStack.isEmpty || _undoStack.last != currentJson) {
-        _undoStack.add(currentJson);
-        if (_undoStack.length > _maxHistorySize) {
-          _undoStack.removeAt(0);
+    Future.microtask(() {
+      try {
+        final currentJson = _generateFullDatabaseJson();
+        if (_undoStack.isEmpty || _undoStack.last != currentJson) {
+          _undoStack.add(currentJson);
+          if (_undoStack.length > _maxHistorySize) {
+            _undoStack.removeAt(0);
+          }
+          _redoStack.clear();
         }
-        _redoStack.clear(); // Clear redo on new actions
+      } catch (e) {
+        debugPrint("Error saving state to history: $e");
       }
-    } catch (e) {
-      debugPrint("Error saving state to history: $e");
-    }
+    });
   }
 
   void _undo() {
@@ -3052,7 +3012,6 @@ Future<void> _recordSyncTimestamp() async {
     final pending = _smsQueue.where((item) => item.status == 'PENDING').toList();
     if (pending.isEmpty) return;
 
-    // Check and request runtime permission
     var status = await Permission.sms.status;
     if (!status.isGranted) {
       status = await Permission.sms.request();
@@ -3061,8 +3020,6 @@ Future<void> _recordSyncTimestamp() async {
         return;
       }
     }
-
-    bool stateChanged = false;
 
     for (var item in pending) {
       final cleanPhone = item.phone.replaceAll(RegExp(r'[^0-9]'), '');
@@ -3077,27 +3034,28 @@ Future<void> _recordSyncTimestamp() async {
 
           if (res == 'SENT') {
             item.status = 'SENT';
-            stateChanged = true;
+            // Update status in Firestore cloud collection
+            if (Firebase.apps.isNotEmpty) {
+              FirebaseFirestore.instance
+                  .collection('sms_queue')
+                  .doc(item.id)
+                  .update({'status': 'SENT'});
+            }
           } else {
             item.status = 'FAILED';
-            stateChanged = true;
           }
         } catch (e) {
           debugPrint("Native SMS channel error: $e");
           item.status = 'FAILED';
-          stateChanged = true;
         }
       } else {
         item.status = 'FAILED';
-        stateChanged = true;
       }
     }
 
-    if (stateChanged) {
-      setState(() {});
-      await _commitToLocalDrive();
-    }
-  }  
+    setState(() {});
+    await _commitToLocalDrive();
+  }
      Future<void> _initializeAppData() async {
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted && _isLoading) {
@@ -3208,20 +3166,25 @@ Future<void> _recordSyncTimestamp() async {
   }
   
    DateTime _getFYStartDate(String fy) {
-    final startYear = int.parse(fy.split('-')[0]);
-    return DateTime(startYear, 4, 1);
-   }
+    return _fyStartCache.putIfAbsent(fy, () {
+      final startYear = int.parse(fy.split('-')[0]);
+      return DateTime(startYear, 4, 1);
+    });
+  }
 
-   DateTime _getFYEndDate(String fy) {
-    final startYear = int.parse(fy.split('-')[0]);
-    return DateTime(startYear + 1, 3, 31, 23, 59, 59);
-    }
+  DateTime _getFYEndDate(String fy) {
+    return _fyEndCache.putIfAbsent(fy, () {
+      final startYear = int.parse(fy.split('-')[0]);
+      return DateTime(startYear + 1, 3, 31, 23, 59, 59);
+    });
+  }
 
-   bool _isDateInFY(String dateStr, String fy) {
+  bool _isDateInFY(String dateStr, String fy) {
     final date = parseFlexibleDate(dateStr);
-    return date.isAfter(_getFYStartDate(fy).subtract(const Duration(seconds: 1))) &&
-           date.isBefore(_getFYEndDate(fy).add(const Duration(seconds: 1)));
-    }
+    final start = _getFYStartDate(fy);
+    final end = _getFYEndDate(fy);
+    return !date.isBefore(start) && !date.isAfter(end);
+  }
 
     String _toIso(String input) {
     final d = parseFlexibleDate(input);
@@ -3527,35 +3490,61 @@ void _updateNextInvoiceNumber() {
     return set.isNotEmpty ? set.toList().cast<String>() : _sellerNames;
   }
 
+  // ---------------- O(1) HIGH-SPEED DATE & DISPLAY CACHE ----------------
+  static final Map<String, DateTime> _dateParseCache = {};
+  static final Map<String, String> _displayDateCache = {};
+  static final Map<String, DateTime> _fyStartCache = {};
+  static final Map<String, DateTime> _fyEndCache = {};
+
   static DateTime parseFlexibleDate(String input) {
-    if (input.trim().isEmpty) return DateTime(1970);
+    if (input.isEmpty) return DateTime(1970);
+    final cached = _dateParseCache[input];
+    if (cached != null) return cached;
+
     final clean = input.trim().replaceAll('/', '-').replaceAll(' ', '-');
+    if (clean.isEmpty) return DateTime(1970);
+
+    DateTime result = DateTime.now();
     try {
       final parts = clean.split('-');
       if (parts.length == 3) {
         if (parts[0].length == 4) {
-          return DateTime(int.parse(parts[0]), _parseMonth(parts[1]), int.parse(parts[2]));
+          result = DateTime(int.parse(parts[0]), _parseMonth(parts[1]), int.parse(parts[2]));
+        } else {
+          int year = int.parse(parts[2]);
+          if (year < 100) year += 2000;
+          result = DateTime(year, _parseMonth(parts[1]), int.parse(parts[0]));
         }
-        int year = int.parse(parts[2]);
-        if (year < 100) year += 2000;
-        return DateTime(year, _parseMonth(parts[1]), int.parse(parts[0]));
       }
     } catch (_) {}
-    return DateTime.now();
+
+    _dateParseCache[input] = result;
+    return result;
   }
 
   static String formatDisplayDate(String rawDate) {
+    if (rawDate.isEmpty) return '—';
+    final cached = _displayDateCache[rawDate];
+    if (cached != null) return cached;
+
     if (rawDate.trim().isEmpty) return '—';
     final dt = parseFlexibleDate(rawDate);
     final dd = dt.day.toString().padLeft(2, '0');
     final mm = dt.month.toString().padLeft(2, '0');
     final yy = (dt.year % 100).toString().padLeft(2, '0');
-    return "$dd-$mm-$yy";
+    final formatted = "$dd-$mm-$yy";
+
+    _displayDateCache[rawDate] = formatted;
+    return formatted;
   }
 
   static int _parseMonth(String m) {
-    final num = int.tryParse(m); if (num != null) return num;
-    final months = {"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6, "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12};
+    final num = int.tryParse(m);
+    if (num != null) return num;
+    const months = {
+      "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+      "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+    };
     return months[m.toUpperCase()] ?? 1;
   }
 
@@ -6300,44 +6289,25 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
             ],
           ),
           const SizedBox(height: 16),
-          // Search Bar & Filter Chips
+          // Search Bar & Filter Chips (Soft Capsule + Animated Chip Selector)
           _responsiveRow([
             Expanded(
-              flex: 3,
-              child: SizedBox(
-                height: 40,
-                child: TextField(
-                  controller: _partySearchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText: 'Search by name, phone, address...',
-                    prefixIcon: const Icon(Icons.search, size: 16),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
+              flex: 4,
+              child: _customField(
+                'Quick Search Directory',
+                _partySearchCtrl,
+                hint: 'Search by party name, phone, or city...',
+                onChanged: (_) => setState(() {}),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               flex: 4,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: ['ALL', 'BUYER', 'SELLER', 'TRANSPORTER'].map((type) {
-                    final bool active = _partyTypeFilter == type;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(type),
-                        selected: active,
-                        selectedColor: const Color(0xFF047857),
-                        labelStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: active ? Colors.white : const Color(0xFF64748B)),
-                        onSelected: (_) => setState(() => _partyTypeFilter = type),
-                      ),
-                    );
-                  }).toList(),
-                ),
+              child: SoftChipSelector(
+                label: 'Filter by Role',
+                options: const ['ALL', 'BUYER', 'SELLER', 'TRANSPORTER'],
+                selectedValue: _partyTypeFilter,
+                onSelected: (type) => setState(() => _partyTypeFilter = type),
               ),
             ),
           ]),
@@ -6920,98 +6890,44 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
 
           const SizedBox(height: 20),
 
-          // SECTION B: CONSIGNMENT & COMMERCIALS (SPLIT INTO 2 BALANCED ROWS)
+          // SECTION B: CONSIGNMENT & COMMERCIALS (SOFT CHIPS & CAPSULES)
           sectionTitle('2. Consignment & Commercials', Icons.inventory_2_outlined),
+          SoftChipSelector(
+            label: 'Commodity Grade (1-Tap Selection)',
+            options: _coconutTypes,
+            selectedValue: _tCoconutType,
+            onSelected: (val) => setState(() => _tCoconutType = val),
+            onAddNew: _showManageCommoditiesDialog,
+          ),
+          const SizedBox(height: 14),
+
           _responsiveRow([
-            // Coconut Type
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Coconut Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                      InkWell(
-                        onTap: _showManageCommoditiesDialog,
-                        child: const Text('+ Manage', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _coconutTypes.contains(_tCoconutType) ? _tCoconutType : (_coconutTypes.isNotEmpty ? _coconutTypes.first : null),
-                        isExpanded: true,
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        items: _coconutTypes.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (val) {
-                          if (val != null) setState(() => _tCoconutType = val);
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            Expanded(child: _customField('Quantity (Nuts)', _tQtyCtrl, isNum: true, focusNode: _tQtyFocus)),
             const SizedBox(width: 12),
-            // Quantity
-            Expanded(child: _customField('Quantity (Nuts)', _tQtyCtrl, isNum: true)),
-          ]),
-
-          const SizedBox(height: 12),
-
-          _responsiveRow([
-            // Bill Amount Field(s)
             if (!_hasCustomBuyerBill) ...[
               Expanded(
                 flex: 2,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Bill Amount *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                        InkWell(
-                          onTap: () {
-                            setState(() {
-                              _hasCustomBuyerBill = true;
-                              if (_tBBillCtrl.text.isEmpty || _tBBillCtrl.text == "0") {
-                                _tBBillCtrl.text = _tSBillCtrl.text;
-                              }
-                            });
-                          },
-                          child: const Text('+ Separate Buyer Bill', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    SizedBox(
-                      height: 40,
-                      child: TextField(
-                        controller: _tSBillCtrl,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        decoration: InputDecoration(
-                          hintText: 'SELLER & BUYER BILL',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
-                          filled: true,
-                          fillColor: Colors.white,
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _hasCustomBuyerBill = true;
+                            if (_tBBillCtrl.text.isEmpty || _tBBillCtrl.text == "0") {
+                              _tBBillCtrl.text = _tSBillCtrl.text;
+                            }
+                          });
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Text('+ Separate Buyer Bill', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF059669))),
                         ),
                       ),
                     ),
+                    _customField('Bill Amount *', _tSBillCtrl, hint: 'SELLER & BUYER BILL', isNum: true),
                   ],
                 ),
               ),
@@ -7023,39 +6939,22 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Buyer Bill *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                        InkWell(
-                          onTap: () {
-                            setState(() {
-                              _hasCustomBuyerBill = false;
-                              _tBBillCtrl.clear();
-                            });
-                          },
-                          child: const Text('× Match Seller', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    SizedBox(
-                      height: 40,
-                      child: TextField(
-                        controller: _tBBillCtrl,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        decoration: InputDecoration(
-                          hintText: 'BUYER BILL',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
-                          filled: true,
-                          fillColor: Colors.white,
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _hasCustomBuyerBill = false;
+                            _tBBillCtrl.clear();
+                          });
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Text('× Match Seller', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.red)),
                         ),
                       ),
                     ),
+                    _customField('Buyer Bill *', _tBBillCtrl, hint: 'BUYER BILL', isNum: true),
                   ],
                 ),
               ),
@@ -7076,30 +6975,19 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
             Expanded(child: _customField('Advance (₹)', _tAdvCtrl, isNum: true, onChanged: (_) => setState(() {}))),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Freight Balance', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                  const SizedBox(height: 5),
-                  Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
-                    ),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      money(freightBal),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        color: freightBal > 0 ? const Color(0xFFDC2626) : const Color(0xFF047857),
-                      ),
+              child: SoftCapsuleBox(
+                label: 'Freight Balance',
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    money(freightBal),
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                      color: freightBal > 0 ? const Color(0xFFDC2626) : const Color(0xFF047857),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -8275,7 +8163,8 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
   }
 
   // ---------------- PAYMENTS VIEW (CLEAN MANUAL CONSOLE) ----------------
-  Widget _buildPaymentsView() {    
+  // ---------------- PAYMENTS VIEW (CLEAN MANUAL CONSOLE) ----------------
+  Widget _buildPaymentsView() {   
     final query = _paySearchCtrl.text.trim().toLowerCase();
     final payList = _payments.where((p) {
       final matchesState = p.state == _selectedState;
@@ -8294,6 +8183,9 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
       });
 
     final ScrollController payScroll = ScrollController();
+    final displayedPayList = (query.isNotEmpty || _showAllPaymentsHistory || payList.length <= 50)
+        ? payList
+        : payList.take(50).toList();
 
     Widget sectionTitle(String title, IconData icon) {
       return Padding(
@@ -8340,7 +8232,6 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with "+ Add Amount Paid / Received" button like "+ Add New Party"
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -8385,75 +8276,52 @@ void _openOrGenerateInvoiceForTruck(dynamic t) {
                     ),
                 ],
               ),
+              const SizedBox(height: 10),
               OutlinedButton.icon(
-  style: OutlinedButton.styleFrom(
-    side: const BorderSide(color: Color(0xFF047857)),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-  ),
-  icon: const Icon(Icons.call_split_rounded, size: 15, color: Color(0xFF047857)),
-  label: const Text('Bulk Allocate to Trucks', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-  onPressed: _showBulkPaymentAllocationDialog,
-),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFF047857)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.call_split_rounded, size: 15, color: Color(0xFF047857)),
+                label: const Text('Bulk Allocate to Trucks', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                onPressed: _showBulkPaymentAllocationDialog,
+              ),
               const SizedBox(height: 20),
               const Divider(height: 1, color: Color(0xFFF1F5F9)),
               const SizedBox(height: 16),
 
               // SECTION A: VOUCHER TYPE & PARTIES
               sectionTitle('1. Voucher Type & Parties', Icons.badge_outlined),
+              SoftChipSelector(
+                label: 'Transaction Type',
+                options: const ["PAYMENT TO SELLER", "RECEIPT FROM BUYER", "COMMISSION PAID"],
+                selectedValue: _payType,
+                onSelected: (val) => setState(() => _payType = val),
+              ),
+              const SizedBox(height: 14),
               _responsiveRow([
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Transaction Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                      const SizedBox(height: 5),
-                      Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _payType,
-                            isExpanded: true,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                            items: [
-  "PAYMENT TO SELLER",
-  "RECEIPT FROM BUYER",
-  "COMMISSION PAID",
-].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                            onChanged: (val) => setState(() => _payType = val!),
-                          ),
-                        ),
-                      ),
-                    ],
+                  child: _customAutocomplete(
+                    'Seller / Supplier',
+                    _sellerNames,
+                    _paySeller,
+                    'SELECT SELLER',
+                    (val) => setState(() => _paySeller = val),
+                    onAddPressed: () => _showAddPartyDialog(initialType: 'SELLER', onCreated: (name) => setState(() => _paySeller = name)),
                   ),
                 ),
+                const SizedBox(width: 12),
                 Expanded(
-  child: _customAutocomplete(
-    'Seller / Supplier',
-    _sellerNames, // Full list of sellers
-    _paySeller,
-    'SELECT SELLER',
-    (val) => setState(() => _paySeller = val),
-    onAddPressed: () => _showAddPartyDialog(initialType: 'SELLER', onCreated: (name) => setState(() => _paySeller = name)),
-  ),
-),
-const SizedBox(width: 12),
-Expanded(
-  child: _customAutocomplete(
-    'Buyer',
-    _buyerNames, // Full list of buyers without restrictions
-    _payBuyer,
-    'SELECT BUYER',
-    (val) => setState(() => _payBuyer = val),
-    onAddPressed: () => _showAddPartyDialog(initialType: 'BUYER', onCreated: (name) => setState(() => _payBuyer = name)),
-  ),
-),
+                  child: _customAutocomplete(
+                    'Buyer',
+                    _buyerNames,
+                    _payBuyer,
+                    'SELECT BUYER',
+                    (val) => setState(() => _payBuyer = val),
+                    onAddPressed: () => _showAddPartyDialog(initialType: 'BUYER', onCreated: (name) => setState(() => _payBuyer = name)),
+                  ),
+                ),
               ]),
 
               const SizedBox(height: 16),
@@ -8565,7 +8433,6 @@ Expanded(
                                   final double totalAmt = (item['bill'] as num).toDouble();
                                   final bool isThisSelected = t.id == _paySelectedTruckId;
 
-                                  // Live Due subtraction: immediately updates as you type in Amount Paid / Discount
                                   final double liveDue = isThisSelected
                                       ? (baseDue - totalPayingNow).clamp(0.0, double.infinity)
                                       : baseDue;
@@ -8621,177 +8488,110 @@ Expanded(
 
               const SizedBox(height: 16),
 
-              // SECTION C: PAYMENT DETAILS (MANUAL DATE + AMOUNTS + SETTLEMENT/DISCOUNT)
+              // SECTION C: PAYMENT DETAILS (SOFT CAPSULES & 1-TAP BANK CHIPS)
               sectionTitle('3. Payment Details & Settlement', Icons.payment_outlined),
               _responsiveRow([
-                // 1. Manual Date Input (No Calendar Popup)
                 Expanded(
                   flex: 3,
-                  child: _customField('Payment Date (DD-MM-YY) *', _payDateCtrl, hint: 'DD-MM-YY'),
+                  child: _customField('Payment Date *', _payDateCtrl, hint: 'DD-MM-YY', isDate: true),
                 ),
+                const SizedBox(width: 12),
                 Expanded(
-           flex: 3,
-           child: _customField(
-             'Lump-Sum Paid/Remittance (Optional)',
-             _payDepositTotalCtrl,
-             hint: 'e.g. 98000',
-             isNum: true,
-             onChanged: (_) => setState(() {}),
-           ),
-         ),
-                const SizedBox(width: 12),                
-
-                // 2. Amount Field with Math Auto-Sum & "+ Add Amount Paid/Received" Quick Link
+                  flex: 3,
+                  child: _customField(
+                    'Lump-Sum Remittance',
+                    _payDepositTotalCtrl,
+                    hint: 'e.g. 98000',
+                    isNum: true,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   flex: 5,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _payType.contains("SELLER") ? 'Amount Paid (₹) *' : 'Amount Received (₹) *',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
-                          ),
-                          InkWell(
-                            onTap: _showAddMultiplePaymentsDialog,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              child: Text(
-                                _payType.contains("SELLER") ? '+ Add Amount Paid' : '+ Add Amount Received',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
-                              ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: InkWell(
+                          onTap: _showAddMultiplePaymentsDialog,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              _payType.contains("SELLER") ? '+ Split / Multi-Mode Paid' : '+ Split / Multi-Mode Received',
+                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      SizedBox(
-                        height: 40,
-                        child: TextField(
-                          controller: _payAmountCtrl,
-                          keyboardType: TextInputType.text,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                          decoration: InputDecoration(
-                            hintText: 'e.g. 95000 or 95000+25000',
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
-                            filled: true,
-                            fillColor: Colors.white,
-                          ),
-                          onChanged: (_) => setState(() {}),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // 3. Payment Mode Dropdown with "+ Add New"
-                Expanded(
-                  flex: 4,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Payment Mode', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                          InkWell(
-                            onTap: () => _showManagePaymentModesDialog(),
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              child: Text(
-                                '+ Add New',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _paymentModes.contains(_payMode)
-                                ? _payMode
-                                : (_paymentModes.isNotEmpty ? _paymentModes.first : null),
-                            isExpanded: true,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                            items: _paymentModes
-                                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) setState(() => _payMode = val);
-                            },
-                          ),
-                        ),
+                      _customField(
+                        _payType.contains("SELLER") ? 'Amount Paid (₹) *' : 'Amount Received (₹) *',
+                        _payAmountCtrl,
+                        hint: 'e.g. 95000 or 95000+25000',
+                        onChanged: (_) => setState(() {}),
                       ),
                     ],
                   ),
                 ),
               ]),
+              const SizedBox(height: 14),
 
-              const SizedBox(height: 12),
+              SoftChipSelector(
+                label: 'Payment Mode (1-Tap Selection)',
+                options: _paymentModes,
+                selectedValue: _payMode,
+                onSelected: (val) => setState(() => _payMode = val),
+                onAddNew: () => _showManagePaymentModesDialog(),
+              ),
+              const SizedBox(height: 14),
 
-              // Row 2: Discount/Settlement, Commission Adjusted, Transport Received
               _responsiveRow([
-             Expanded(
-               child: Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                   Row(
-                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                     children: [
-                       Text(
-                         _payAdjType == 'DISCOUNT' ? 'Discount (₹)' : 'Settlement (₹)',
-                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
-                       ),
-                       Container(
-                         decoration: BoxDecoration(
-                           color: const Color(0xFFF1F5F9),
-                           borderRadius: BorderRadius.circular(8),
-                           border: Border.all(color: const Color(0xFFE2E8F0)),
-                         ),
-                         child: Row(
-                           mainAxisSize: MainAxisSize.min,
-                           children: [
-                             _buildAdjTypeChip('DISCOUNT', 'Discount'),
-                             _buildAdjTypeChip('SETTLEMENT', 'Settlement'),
-                           ],
-                         ),
-                       ),
-                     ],
-                   ),
-                   const SizedBox(height: 5),
-                   _customField('', _paySettlementCtrl, hint: '0', isNum: true),
-                 ],
-               ),
-             ),
-             const SizedBox(width: 12),
-             Expanded(
-               child: _customField('Commission Adjusted (₹)', _payCommAdjustedCtrl, hint: '0', isNum: true),
-             ),
-             const SizedBox(width: 12),
-             Expanded(
-               child: _customField('Transport Received (₹)', _payTransportReceivedCtrl, hint: '0', isNum: true),
-             ),
-           ]),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildAdjTypeChip('DISCOUNT', 'Discount'),
+                                _buildAdjTypeChip('SETTLEMENT', 'Settlement'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      _customField(
+                        _payAdjType == 'DISCOUNT' ? 'Discount (₹)' : 'Settlement (₹)',
+                        _paySettlementCtrl,
+                        hint: '0',
+                        isNum: true,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _customField('Commission Adjusted (₹)', _payCommAdjustedCtrl, hint: '0', isNum: true),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _customField('Transport Received (₹)', _payTransportReceivedCtrl, hint: '0', isNum: true),
+                ),
+              ]),
 
               const SizedBox(height: 22),
 
-             // Action Buttons
+              // Action Buttons
               Row(
                 children: [
                   FilledButton.icon(
@@ -8818,7 +8618,6 @@ Expanded(
                         return;
                       }
 
-                      // MANDATORY PAYMENT DATE CHECK
                       final pDate = _payDateCtrl.text.trim();
                       if (pDate.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -8920,22 +8719,23 @@ Expanded(
                       });
 
                       _commitToLocalDrive();
-                      // Automatic Payment Receipt SMS using Custom Template
-      final targetParty = _payType.contains("SELLER") ? cleanSeller : cleanBuyer;
-      final matchedParty = _parties.firstWhere(
-        (p) => p.name.toString().trim().toUpperCase() == targetParty,
-        orElse: () => Party(name: "", type: targetParty, phone: "", address: ""),
-      );
-      if (matchedParty.phone.trim().isNotEmpty) {
-        final payMsg = _paymentMsgTemplate
-            .replaceAll('{company}', _myCompany.name)
-            .replaceAll('{date}', pDate)
-            .replaceAll('{party}', targetParty)
-            .replaceAll('{amount}', money(splitAmts.first))
-            .replaceAll('{mode}', _payMode);
 
-        _queueNotificationSms(phone: matchedParty.phone, message: payMsg);
-      }
+                      final targetParty = _payType.contains("SELLER") ? cleanSeller : cleanBuyer;
+                      final matchedParty = _parties.firstWhere(
+                        (p) => p.name.toString().trim().toUpperCase() == targetParty,
+                        orElse: () => Party(name: "", type: targetParty, phone: "", address: ""),
+                      );
+                      if (matchedParty.phone.trim().isNotEmpty) {
+                        final payMsg = _paymentMsgTemplate
+                            .replaceAll('{company}', _myCompany.name)
+                            .replaceAll('{date}', pDate)
+                            .replaceAll('{party}', targetParty)
+                            .replaceAll('{amount}', money(splitAmts.first))
+                            .replaceAll('{mode}', _payMode);
+
+                        _queueNotificationSms(phone: matchedParty.phone, message: payMsg);
+                      }
+
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(backgroundColor: Color(0xFF047857), content: Text('Transaction saved successfully!')),
                       );
@@ -8960,6 +8760,7 @@ Expanded(
         ),
 
         const SizedBox(height: 18),     
+
         // 2. TRANSACTION HISTORY CARD & LEDGER TABLE
         Container(
           padding: EdgeInsets.all(isMobile ? 14 : 20),
@@ -8974,7 +8775,6 @@ Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header & Quick Search Bar
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -9051,7 +8851,7 @@ Expanded(
                           DataColumn(label: Text('DISCOUNT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
                           DataColumn(label: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B)))),
                         ],
-                        rows: payList.isEmpty
+                        rows: displayedPayList.isEmpty
                             ? [
                                 const DataRow(cells: [
                                   DataCell(Text('No transaction entries found.')),
@@ -9063,7 +8863,7 @@ Expanded(
                                   DataCell(SizedBox()),
                                 ])
                               ]
-                            : payList.map((p) {
+                            : displayedPayList.map((p) {
                                 final bool isSeller = p.type.contains("SELLER");
                                 final bool isDirect = p.type.contains("DIRECT");
 
@@ -9075,14 +8875,8 @@ Expanded(
                                   DataCell(
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                                      decoration: BoxDecoration(
-                                        color: badgeBg,
-                                        borderRadius: BorderRadius.circular(5),
-                                      ),
-                                      child: Text(
-                                        p.type,
-                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5, color: badgeText),
-                                      ),
+                                      decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(5)),
+                                      child: Text(p.type, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5, color: badgeText)),
                                     ),
                                   ),
                                   DataCell(Text(p.party.isEmpty ? '—' : p.party, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF0F172A)))),
@@ -9099,39 +8893,29 @@ Expanded(
                                         : Text(money(p.amount), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Color(0xFF047857))),
                                   ),
                                   DataCell(Text(p.mode, style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569)))),
-                                  DataCell(Text(p.settlement > 0
-      ? '${p.adjType == "SETTLEMENT" ? "Settled" : "Disc"} ${money(p.settlement)}'
-      : '—',
-  style: const TextStyle(fontSize: 11.5),
-)),
+                                  DataCell(Text(p.settlement > 0 ? '${p.adjType == "SETTLEMENT" ? "Settled" : "Disc"} ${money(p.settlement)}' : '—', style: const TextStyle(fontSize: 11.5))),
                                   DataCell(
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         InkWell(
-                                          onTap: () => _loadPaymentIntoForm(p), // Moves directly to Record Transaction form
-                                          child: const Padding(
-                                            padding: EdgeInsets.all(4.0),
-                                            child: Icon(Icons.edit_outlined, size: 16, color: Color(0xFF047857)),
-                                          ),
+                                          onTap: () => _loadPaymentIntoForm(p),
+                                          child: const Padding(padding: EdgeInsets.all(4.0), child: Icon(Icons.edit_outlined, size: 16, color: Color(0xFF047857))),
                                         ),
                                         const SizedBox(width: 8),
                                         InkWell(
                                           onTap: () async {
                                             if (await _confirmDelete(context, "Payment entry for ${p.party}")) {
                                               setState(() {
-  _saveStateToHistory();
-  _payments.remove(p);
-  _calculateOverdueBills(_trucks);
-});
-_deleteDocumentFromFirestore('payments', p.id);
-_commitToLocalDrive();
+                                                _saveStateToHistory();
+                                                _payments.remove(p);
+                                                _calculateOverdueBills(_trucks);
+                                              });
+                                              _deleteDocumentFromFirestore('payments', p.id);
+                                              _commitToLocalDrive();
                                             }
                                           },
-                                          child: const Padding(
-                                            padding: EdgeInsets.all(4.0),
-                                            child: Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                                          ),
+                                          child: const Padding(padding: EdgeInsets.all(4.0), child: Icon(Icons.delete_outline, size: 16, color: Colors.red)),
                                         ),
                                       ],
                                     ),
@@ -9143,12 +8927,30 @@ _commitToLocalDrive();
                   ),
                 ),
               ),
+
+              if (payList.length > 50 && query.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _showAllPaymentsHistory = !_showAllPaymentsHistory),
+                      icon: Icon(_showAllPaymentsHistory ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 18, color: const Color(0xFF047857)),
+                      label: Text(
+                        _showAllPaymentsHistory
+                            ? 'Show Latest 50 Only (Faster)'
+                            : 'Show All ${payList.length} Transactions',
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF047857)),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
       ],
     );
   }
+  
 
   String _formatPaymentSummary(PaymentEntry p) {
     final dateStr = formatDisplayDate(p.date);
@@ -13869,47 +13671,89 @@ void _showStorageSettingsDialog() {
     );
   }
  Widget _customField(
-    String label, 
-    TextEditingController ctrl, {
-    bool isNum = false, 
-    String? hint, 
-    IconData? icon, 
-    int? maxLines, 
-    bool readOnly = false, 
-    VoidCallback? onTap, 
-    void Function(String)? onChanged,
-    void Function(String)? onSubmitted, // <-- Added this back to fix the 5800s errors
+    String label,
+    TextEditingController controller, {
+    String? hint,
+    bool isNum = false,
+    bool isDate = false,
+    bool readOnly = false,
+    int maxLines = 1,
+    IconData? icon,
+    FocusNode? focusNode,
+    FocusNode? nextFocus,
+    VoidCallback? onTap,
+    ValueChanged<String>? onChanged,
+    ValueChanged<String>? onSubmitted,
+    VoidCallback? onSubmittedAction,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-        const SizedBox(height: 5),
-        TextField(
-          controller: ctrl,
-          readOnly: readOnly,
-          onTap: onTap,
-          onChanged: onChanged,
-          onSubmitted: onSubmitted ?? (_) => FocusScope.of(context).nextFocus(),
-          textInputAction: (maxLines ?? 1) > 1 ? TextInputAction.newline : TextInputAction.next,
-          onEditingComplete: () => FocusScope.of(context).nextFocus(),
-          maxLines: maxLines,
-          scrollPadding: const EdgeInsets.only(bottom: 80),
-          keyboardType: isNum ? TextInputType.number : ((maxLines ?? 1) > 1 ? TextInputType.multiline : TextInputType.text),
-          inputFormatters: isNum ? [] : [UpperCaseTextFormatter()],
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-          decoration: InputDecoration(
-            hintText: hint,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            suffixIcon: icon != null ? Icon(icon, size: 18, color: const Color(0xFF64748B)) : null,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF047857), width: 1.5)),
-            filled: true,
-            fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
+    // Fast-path for purely display-only calculated fields (avoids TextField overhead)
+    if (readOnly && onTap == null) {
+      return SoftCapsuleBox(
+        label: label,
+        customIcon: icon,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Text(
+            controller.text.isNotEmpty ? controller.text : (hint ?? '—'),
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
           ),
         ),
-      ],
+      );
+    }
+
+    final bool autoDate = isDate || label.toUpperCase().contains('DATE');
+    return SoftCapsuleBox(
+      label: label,
+      customIcon: icon,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        readOnly: readOnly,
+        maxLines: maxLines,
+        onTap: onTap,
+        keyboardType: isNum
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
+        inputFormatters: autoDate && !readOnly
+            ? [SmoothDateFormatter()]
+            : (!isNum ? [UpperCaseTextFormatter()] : null),
+        style: const TextStyle(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF0F172A),
+        ),
+        onChanged: (val) {
+          if (onChanged != null) onChanged(val);
+        },
+        onSubmitted: (val) {
+          if (onSubmitted != null) {
+            onSubmitted(val);
+          } else if (onSubmittedAction != null) {
+            onSubmittedAction();
+          } else if (nextFocus != null) {
+            FocusScope.of(context).requestFocus(nextFocus);
+          }
+        },
+        decoration: InputDecoration(
+          hintText: hint ?? (autoDate ? 'DD-MM-YY' : ''),
+          hintStyle: const TextStyle(
+            color: Color(0xFF94A3B8),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 3),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+        ),
+      ),
     );
   }
 
@@ -14545,8 +14389,6 @@ void _showStorageSettingsDialog() {
   }
 } // Closes _MainLayoutScreenState
 // ---------------------------------------------------------------------------
-// FLUID NEO-FINTECH APP CONTAINER (WINDOWS & ANDROID RESPONSIVE)
-// ---------------------------------------------------------------------------
 class NeoScaffold extends StatelessWidget {
   final Widget body;
   final String activeTab;
@@ -14573,266 +14415,256 @@ class NeoScaffold extends StatelessWidget {
     this.syncHealthLabel = 'Live Synced',
   });
 
+  static const List<Map<String, dynamic>> _tabs = [
+    {'key': 'dashboard', 'label': 'Dash', 'full': 'Dashboard', 'icon': Icons.space_dashboard_rounded},
+    {'key': 'parties', 'label': 'Parties', 'full': 'Parties Directory', 'icon': Icons.contacts_rounded},
+    {'key': 'trucks', 'label': 'Logistics', 'full': 'Truck Logistics', 'icon': Icons.local_shipping_rounded},
+    {'key': 'invoice', 'label': 'Invoice', 'full': 'Invoice Ledger', 'icon': Icons.receipt_long_rounded},
+    {'key': 'payments', 'label': 'Payments', 'full': 'Payment Desk', 'icon': Icons.account_balance_wallet_rounded},
+    {'key': 'reports', 'label': 'Ledgers', 'full': 'Party Ledgers', 'icon': Icons.query_stats_rounded},
+    {'key': 'transport', 'label': 'Transport', 'full': 'Transport Logs', 'icon': Icons.commute_rounded},
+    {'key': 'estimate', 'label': 'Estimator', 'full': 'Cost Estimator', 'icon': Icons.calculate_rounded},
+  ];
+
+  Widget _buildAnimatedWorkspace(EdgeInsets padding) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        final slide = Tween<Offset>(
+          begin: const Offset(0.0, 0.025),
+          end: Offset.zero,
+        ).animate(animation);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(position: slide, child: child),
+        );
+      },
+      child: SingleChildScrollView(
+        key: ValueKey(activeTab),
+        physics: const ClampingScrollPhysics(),
+        padding: padding,
+        child: body,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final bool isMobile = MediaQuery.of(context).size.width < 960;
+    final double width = MediaQuery.of(context).size.width;
+    final bool isMobile = width < 820;
+    final bool isTablet = width >= 820 && width < 1220;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: const Color(0xFFEEF2F0),
       body: Stack(
         children: [
-          // 1. Ambient Background Glow Accents
-          Positioned(
-            top: -120,
-            right: -100,
+          // Soft Ambient Background Gradient
+          Positioned.fill(
             child: Container(
-              width: 380,
-              height: 380,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
+              decoration: const BoxDecoration(
                 gradient: RadialGradient(
+                  center: Alignment(-0.8, -0.8),
+                  radius: 1.6,
                   colors: [
-                    const Color(0xFF10B981).withOpacity(0.08),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -150,
-            left: 200,
-            child: Container(
-              width: 450,
-              height: 450,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF047857).withOpacity(0.05),
-                    Colors.transparent,
+                    Color(0xFFE0F2FE),
+                    Color(0xFFEEF2F0),
+                    Color(0xFFECFDF5),
                   ],
                 ),
               ),
             ),
           ),
 
-          // 2. Primary Layout Switcher
-          isMobile
-              ? SafeArea(
-                  child: Column(
-                    children: [
-                      _buildMobileTopBar(context),
-                     Expanded(
-  child: SingleChildScrollView(
-    key: ValueKey(activeTab),    
-    physics: const ClampingScrollPhysics(), // Stops bounce & limits scroll strictly to content bounds
-    padding: const EdgeInsets.all(16),
-                          child: body,
-                        ),
-                      ),
-                    ],
+          // 1. MOBILE VIEW (< 820px): Top Glass Bar + Bottom Floating Dock
+          if (isMobile)
+            SafeArea(
+              child: Column(
+                children: [
+                  _buildMobileTopBar(context),
+                  Expanded(
+                    child: _buildAnimatedWorkspace(const EdgeInsets.fromLTRB(12, 8, 12, 16)),
                   ),
-                )
-              : Row(
-                  children: [
-                    _buildDesktopSidebar(),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          _buildDesktopTopBar(),
-                          Expanded(
-                            child: SingleChildScrollView(
-                              key: ValueKey(activeTab),
-                              physics: const ClampingScrollPhysics(),
-                              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
-                              child: body,
-                            ),
-                          ),
-                        ],
+                ],
+              ),
+            )
+          // 2. IPAD / TABLET VIEW (820px - 1220px): Left Glass Sidebar + Top Bar
+          else if (isTablet)
+            SafeArea(
+              child: Row(
+                children: [
+                  _buildIpadSidebar(),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildTabletTopBar(),
+                        Expanded(
+                          child: _buildAnimatedWorkspace(const EdgeInsets.symmetric(horizontal: 20, vertical: 16)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          // 3. DESKTOP VIEW (>= 1220px): Floating Top Command Dock + Full Bento Workspace
+          else
+            SafeArea(
+              child: Column(
+                children: [
+                  _buildDesktopCommandDock(),
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1380),
+                        child: _buildAnimatedWorkspace(const EdgeInsets.fromLTRB(28, 16, 28, 28)),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
       bottomNavigationBar: isMobile ? _buildMobileBottomNav() : null,
     );
   }
 
-  // ---------------- DESKTOP FLOATING TOPBAR ----------------
-  Widget _buildDesktopTopBar() {
-return LayoutBuilder(
-  builder: (context, constraints) {
-    final bool isCompact = constraints.maxWidth < 950;
-    
+  // ---------------- DESKTOP FLOATING COMMAND DOCK ----------------
+  Widget _buildDesktopCommandDock() {
     return Container(
-      height: 64,
-      margin: const EdgeInsets.fromLTRB(28, 18, 28, 0),
-      padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 18),
+      margin: const EdgeInsets.fromLTRB(28, 16, 28, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        color: Colors.white.withOpacity(0.88),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white, width: 1.5),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x04000000),
-            blurRadius: 16,
-            offset: Offset(0, 4),
-          ),
+          BoxShadow(color: Color(0x0F064E3B), blurRadius: 28, offset: Offset(0, 10)),
         ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Brand Logo & Live Status
           Row(
             children: [
-              Text(
-                activeTab.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF0F172A),
-                  letterSpacing: 0.5,
-                ),
-              ),
-              if (!isCompact) ...[
-                const SizedBox(width: 14),
-                Container(
-                  height: 16,
-                  width: 1.2,
-                  color: const Color(0xFFCBD5E1),
-                ),
-                const SizedBox(width: 14),
-                const Text(
-                  'LIVE COMMERCE & AUDIT SUITE v2.2',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          Row(
-            children: [
-              // Segmented State Pill
               Container(
-                padding: const EdgeInsets.all(3),
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  children: [
-                    _buildPillItem("Andhra Pradesh", isCompact: isCompact),
-                    _buildPillItem("Tamil Nadu", isCompact: isCompact),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF10B981), Color(0xFF047857)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x4010B981), blurRadius: 12, offset: Offset(0, 4)),
                   ],
                 ),
+                child: const Icon(Icons.eco_rounded, color: Colors.white, size: 20),
               ),
-              SizedBox(width: isCompact ? 8 : 12),
-              // Live Sync Health Badge
-              if (!isCompact)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: syncHealthStatus == 'CONNECTED'
-                        ? const Color(0xFFECFDF5)
-                        : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: syncHealthStatus == 'CONNECTED'
-                          ? const Color(0xFFA7F3D0)
-                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
-                    ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'COCOTRADE ERP',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: Color(0xFF0F172A), letterSpacing: 0.4),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Row(
                     children: [
                       Container(
-                        width: 7,
-                        height: 7,
+                        width: 6,
+                        height: 6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: syncHealthStatus == 'CONNECTED'
-                              ? const Color(0xFF047857)
-                              : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                          color: syncHealthStatus == 'CONNECTED' ? const Color(0xFF059669) : const Color(0xFFD97706),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       Text(
-                        syncHealthLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: syncHealthStatus == 'CONNECTED'
-                              ? const Color(0xFF047857)
-                              : (syncHealthStatus == 'QUEUED' ? const Color(0xFFB45309) : const Color(0xFFDC2626)),
-                        ),
+                        '$syncHealthLabel • FY $financialYear',
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
                       ),
                     ],
                   ),
-                )
-              else
-                // Compact Sync Badge (Just the dot)
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: syncHealthStatus == 'CONNECTED'
-                        ? const Color(0xFFECFDF5)
-                        : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: syncHealthStatus == 'CONNECTED'
-                          ? const Color(0xFFA7F3D0)
-                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
-                    ),
-                  ),
-                  child: Container(
-                    width: 8,
-                    height: 8,
+                ],
+              ),
+            ],
+          ),
+
+          // Center Sliding Pill Tabs
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F3),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _tabs.map((t) {
+                final bool active = activeTab == t['key'];
+                return GestureDetector(
+                  onTap: () => onTabChanged(t['key'] as String),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: syncHealthStatus == 'CONNECTED'
-                          ? const Color(0xFF047857)
-                          : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
+                      color: active ? Colors.white : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: active
+                          ? const [BoxShadow(color: Color(0x12000000), blurRadius: 10, offset: Offset(0, 3))]
+                          : [],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          t['icon'] as IconData,
+                          size: 15,
+                          color: active ? const Color(0xFF047857) : const Color(0xFF64748B),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          t['label'] as String,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                            color: active ? const Color(0xFF064E3B) : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              SizedBox(width: isCompact ? 8 : 10),
-              // FY Badge
+                );
+              }).toList(),
+            ),
+          ),
+
+          // Right State Switcher & Utility Actions
+          Row(
+            children: [
               Container(
-                padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 12, vertical: 7),
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                  color: const Color(0xFFF1F5F3),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.date_range_rounded, size: 13, color: Color(0xFF047857)),
-                    if (!isCompact) const SizedBox(width: 6),
-                    if (!isCompact)
-                      Text(
-                        'FY $financialYear',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF047857),
-                        ),
-                      ),
+                    _buildPillItem("Andhra Pradesh", isCompact: true),
+                    _buildPillItem("Tamil Nadu", isCompact: true),
                   ],
                 ),
               ),
-              
-              SizedBox(width: isCompact ? 6 : 10),
+              const SizedBox(width: 8),
               IconButton.filledTonal(
                 style: IconButton.styleFrom(
                   backgroundColor: const Color(0xFFF1F5F9),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
                 ),
                 icon: const Icon(Icons.settings_outlined, size: 17, color: Color(0xFF0F172A)),
                 onPressed: onSettings,
@@ -14841,7 +14673,7 @@ return LayoutBuilder(
               IconButton.filledTonal(
                 style: IconButton.styleFrom(
                   backgroundColor: const Color(0xFFFEE2E2),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
                 ),
                 icon: const Icon(Icons.lock_outline_rounded, size: 17, color: Color(0xFFDC2626)),
                 onPressed: onLock,
@@ -14851,158 +14683,111 @@ return LayoutBuilder(
         ],
       ),
     );
-  },
-);
-}
-  Widget _buildPillItem(String title, {bool isCompact = false}) {
-final bool active = activeState == title;
-final String displayTitle = isCompact 
-    ? (title == "Andhra Pradesh" ? "AP" : (title == "Tamil Nadu" ? "TN" : title)) 
-    : title;
-    
-return GestureDetector(
-  onTap: () => onStateChanged(title),
-  child: AnimatedContainer(
-    duration: const Duration(milliseconds: 140),
-    padding: EdgeInsets.symmetric(horizontal: isCompact ? 10 : 12, vertical: 6),
-    decoration: BoxDecoration(
-      color: active ? const Color(0xFF047857) : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Text(
-      displayTitle,
-      style: TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.bold,
-        color: active ? Colors.white : const Color(0xFF64748B),
-      ),
-    ),
-  ),
-);
-}
+  }
 
-  // ---------------- DESKTOP EXPANDABLE GLASS SIDEBAR ----------------
-  Widget _buildDesktopSidebar() {
+  // ---------------- IPAD / TABLET SIDEBAR & TOP BAR ----------------
+  Widget _buildIpadSidebar() {
     return Container(
-      width: 230,
-      margin: const EdgeInsets.fromLTRB(18, 18, 0, 18),
+      width: 215,
+      margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF062317),
-        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF063927), Color(0xFF042419)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A047857),
-            blurRadius: 24,
-            offset: Offset(0, 8),
-          ),
+          BoxShadow(color: Color(0x22047857), blurRadius: 24, offset: Offset(0, 8)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Brand Block
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 16),
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF10B981), Color(0xFF047857)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF047857)]),
                     borderRadius: BorderRadius.circular(10),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x3310B981), blurRadius: 10, offset: Offset(0, 3)),
-                    ],
                   ),
-                  child: const Icon(Icons.eco_rounded, color: Colors.white, size: 19),
+                  child: const Icon(Icons.eco_rounded, color: Colors.white, size: 18),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'COCOTRADE',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                    Text(
-                      'LOGISTICS ERP',
-                      style: TextStyle(
-                        color: Color(0xFF6EE7B7),
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.4,
-                      ),
-                    ),
+                    Text('COCOTRADE', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                    Text('IPAD SUITE', style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                   ],
                 ),
               ],
             ),
           ),
-          const Divider(height: 1, color: Color(0x14FFFFFF)),
-          const SizedBox(height: 12),
-
-          // Primary Navigation Links
+          const Divider(height: 1, color: Color(0x18FFFFFF)),
+          const SizedBox(height: 10),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              children: [
-                _buildSectionHeader('OPERATIONS'),
-                _buildNavItem('dashboard', 'Dashboard', Icons.space_dashboard_rounded),
-                _buildNavItem('parties', 'Parties Directory', Icons.contacts_rounded),
-                _buildNavItem('trucks', 'Truck Logistics', Icons.local_shipping_rounded),
-                const SizedBox(height: 16),
-                _buildSectionHeader('FINANCIALS'),
-                _buildNavItem('invoice', 'Invoice Ledger', Icons.receipt_long_rounded),
-                _buildNavItem('payments', 'Payment Ledger', Icons.account_balance_wallet_rounded),
-                _buildNavItem('reports', 'Party Ledgers', Icons.query_stats_rounded),
-                _buildNavItem('transport', 'Transport Logs', Icons.commute_rounded),
-                _buildNavItem('estimate', 'Cost Estimator', Icons.calculate_rounded),
-              ],
+              children: _tabs.map((t) {
+                final bool active = activeTab == t['key'];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(13),
+                    onTap: () => onTabChanged(t['key'] as String),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                      decoration: BoxDecoration(
+                        color: active ? const Color(0xFF10B981).withOpacity(0.24) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(
+                          color: active ? const Color(0xFF34D399).withOpacity(0.45) : Colors.transparent,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(t['icon'] as IconData, size: 18, color: active ? Colors.white : const Color(0xFFA7F3D0)),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Text(
+                              t['full'] as String,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+                                color: active ? Colors.white : const Color(0xFFD1FAE5),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
-
-          // System Session Footer
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                color: const Color(0x14FFFFFF),
+                color: Colors.white.withOpacity(0.06),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0x1AFFFFFF)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'LOCAL STORE',
-                        style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF6EE7B7), letterSpacing: 0.8),
-                      ),
-                      Text(
-                        'Persistence Online',
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Colors.white70),
-                      ),
-                    ],
-                  ),
+                  Text('FY $financialYear', style: const TextStyle(color: Color(0xFF6EE7B7), fontSize: 11, fontWeight: FontWeight.w800)),
                   InkWell(
                     onTap: onLock,
-                    child: const Padding(
-                      padding: EdgeInsets.all(4.0),
-                      child: Icon(Icons.power_settings_new_rounded, size: 16, color: Color(0xFFF87171)),
-                    ),
+                    child: const Icon(Icons.power_settings_new_rounded, size: 17, color: Color(0xFFF87171)),
                   ),
                 ],
               ),
@@ -15013,81 +14798,95 @@ return GestureDetector(
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 10, top: 8, bottom: 6),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 9.5,
-          fontWeight: FontWeight.w900,
-          color: Color(0xFF4B6E5B),
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(String key, String title, IconData icon) {
-    final bool active = activeTab == key;
+  Widget _buildTabletTopBar() {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => onTabChanged(key),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: active ? const Color(0xFF10B981) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: active
-                ? [
-                    const BoxShadow(
-                      color: Color(0x3310B981),
-                      blurRadius: 10,
-                      offset: Offset(0, 3),
-                    )
-                  ]
-                : null,
+      height: 58,
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.88),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            activeTab.toUpperCase(),
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), letterSpacing: 0.5),
           ),
-          child: Row(
+          Row(
             children: [
-              Icon(icon, size: 18, color: active ? Colors.white : const Color(0xFF86A393)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: active ? FontWeight.w900 : FontWeight.w600,
-                    color: active ? Colors.white : const Color(0xFFC7D7CF),
-                  ),
-                  overflow: TextOverflow.ellipsis,
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(color: const Color(0xFFF1F5F3), borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  children: [
+                    _buildPillItem("Andhra Pradesh", isCompact: false),
+                    _buildPillItem("Tamil Nadu", isCompact: false),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                style: IconButton.styleFrom(backgroundColor: const Color(0xFFF1F5F9)),
+                icon: const Icon(Icons.settings_outlined, size: 17, color: Color(0xFF0F172A)),
+                onPressed: onSettings,
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPillItem(String title, {bool isCompact = false}) {
+    final bool active = activeState == title;
+    final String displayTitle = isCompact
+        ? (title == "Andhra Pradesh" ? "AP" : (title == "Tamil Nadu" ? "TN" : title))
+        : title;
+
+    return GestureDetector(
+      onTap: () => onStateChanged(title),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.symmetric(horizontal: isCompact ? 11 : 13, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF059669) : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Text(
+          displayTitle,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: active ? Colors.white : const Color(0xFF64748B),
+          ),
         ),
       ),
     );
   }
 
-  // ---------------- MOBILE SLICK APP BAR ----------------
+  // ---------------- MOBILE TOP BAR & FLOATING BOTTOM DOCK ----------------
   Widget _buildMobileTopBar(BuildContext context) {
     return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      color: Colors.white,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 14, offset: Offset(0, 4))],
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF047857),
-                  borderRadius: BorderRadius.circular(8),
+                  gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF047857)]),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.eco_rounded, color: Colors.white, size: 16),
               ),
@@ -15096,59 +14895,28 @@ return GestureDetector(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         activeTab.toUpperCase(),
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
                       ),
-                      const SizedBox(width: 8),
-                      // Mobile Live Sync Dot & Badge
+                      const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: syncHealthStatus == 'CONNECTED'
-                              ? const Color(0xFFECFDF5)
-                              : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2)),
+                          color: const Color(0xFFECFDF5),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: syncHealthStatus == 'CONNECTED'
-                                ? const Color(0xFFA7F3D0)
-                                : (syncHealthStatus == 'QUEUED' ? const Color(0xFFFDE68A) : const Color(0xFFFECACA)),
-                          ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: syncHealthStatus == 'CONNECTED'
-                                    ? const Color(0xFF047857)
-                                    : (syncHealthStatus == 'QUEUED' ? const Color(0xFFD97706) : const Color(0xFFDC2626)),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              syncHealthStatus == 'CONNECTED' ? 'Live' : (syncHealthStatus == 'QUEUED' ? 'Queued' : 'Offline'),
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
-                                color: syncHealthStatus == 'CONNECTED'
-                                    ? const Color(0xFF047857)
-                                    : (syncHealthStatus == 'QUEUED' ? const Color(0xFFB45309) : const Color(0xFFDC2626)),
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          syncHealthStatus == 'CONNECTED' ? '● Live' : '● Sync',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
                         ),
                       ),
                     ],
                   ),
                   Text(
                     'FY $financialYear • $activeState',
-                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
                   ),
                 ],
               ),
@@ -15156,20 +14924,28 @@ return GestureDetector(
           ),
           Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.swap_horiz_rounded, size: 20, color: Color(0xFF047857)),
-                onPressed: () => onStateChanged(activeState == "Andhra Pradesh" ? "Tamil Nadu" : "Andhra Pradesh"),
-                tooltip: 'Switch State',
+              InkWell(
+                borderRadius: BorderRadius.circular(9),
+                onTap: () => onStateChanged(activeState == "Andhra Pradesh" ? "Tamil Nadu" : "Andhra Pradesh"),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    activeState == "Andhra Pradesh" ? "⇄ AP" : "⇄ TN",
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
+                  ),
+                ),
               ),
               IconButton(
-                icon: const Icon(Icons.settings_outlined, size: 18, color: Color(0xFF0F172A)),
+                icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF0F172A)),
                 onPressed: onSettings,
-                tooltip: 'Settings',
               ),
               IconButton(
-                icon: const Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF64748B)),
+                icon: const Icon(Icons.lock_outline_rounded, size: 19, color: Color(0xFFDC2626)),
                 onPressed: onLock,
-                tooltip: 'Lock ERP',
               ),
             ],
           ),
@@ -15178,63 +14954,362 @@ return GestureDetector(
     );
   }
 
-  // ---------------- MOBILE BOTTOM DOCKED NAV BAR (SCROLLABLE FOR ALL TABS) ----------------
   Widget _buildMobileBottomNav() {
     return Container(
-      height: 60,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+      height: 66,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+        boxShadow: const [BoxShadow(color: Color(0x12000000), blurRadius: 20, offset: Offset(0, -4))],
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: [
-            _buildMobileTabItem('dashboard', Icons.space_dashboard_rounded, 'Dash'),
-            _buildMobileTabItem('parties', Icons.contacts_rounded, 'Parties'),
-            _buildMobileTabItem('trucks', Icons.local_shipping_rounded, 'Logistics'),
-            _buildMobileTabItem('invoice', Icons.receipt_long_rounded, 'Invoice'),
-            _buildMobileTabItem('payments', Icons.account_balance_wallet_rounded, 'Ledger'),
-            _buildMobileTabItem('reports', Icons.query_stats_rounded, 'Reports'),
-            _buildMobileTabItem('transport', Icons.commute_rounded, 'Transport'),
-            _buildMobileTabItem('estimate', Icons.calculate_rounded, 'Estimate'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMobileTabItem(String key, IconData icon, String label) {
-    final bool active = activeTab == key;
-    return InkWell(
-      onTap: () => onTabChanged(key),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 19,
-              color: active ? const Color(0xFF047857) : const Color(0xFF94A3B8),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: active ? FontWeight.w900 : FontWeight.w600,
-                color: active ? const Color(0xFF047857) : const Color(0xFF94A3B8),
+          children: _tabs.map((t) {
+            final bool active = activeTab == t['key'];
+            return GestureDetector(
+              onTap: () => onTabChanged(t['key'] as String),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: active ? const Color(0xFFECFDF5) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      t['icon'] as IconData,
+                      size: 19,
+                      color: active ? const Color(0xFF047857) : const Color(0xFF94A3B8),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      t['label'] as String,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                        color: active ? const Color(0xFF064E3B) : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            );
+          }).toList(),
         ),
       ),
     );
   }
 }
 // ---------------- CAPITALIZATION TEXT FORMATTER ----------------
+class SmoothDateFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digitsOnly.length > 6) return oldValue;
+    final buffer = StringBuffer();
+    for (int i = 0; i < digitsOnly.length; i++) {
+      buffer.write(digitsOnly[i]);
+      if ((i == 1 || i == 3) && i != digitsOnly.length - 1) {
+        buffer.write('-');
+      }
+    }
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+// ============================================================================
+// SOFT NEO-GLASS TACTILE CAPSULE ENGINE & ANIMATED CHIP SELECTOR
+// ============================================================================
+
+class SoftCapsuleBox extends StatefulWidget {
+  final String label;
+  final Widget child;
+  final IconData? customIcon;
+  final String? customUnit;
+
+  const SoftCapsuleBox({
+    super.key,
+    required this.label,
+    required this.child,
+    this.customIcon,
+    this.customUnit,
+  });
+
+  @override
+  State<SoftCapsuleBox> createState() => _SoftCapsuleBoxState();
+}
+
+class _SoftCapsuleBoxState extends State<SoftCapsuleBox> {
+  bool _isFocused = false;
+  bool _isHovered = false;
+
+  IconData _resolveSmartIcon(String lbl) {
+    if (widget.customIcon != null) return widget.customIcon!;
+    final l = lbl.toUpperCase();
+    if (l.contains('DATE') || l.contains('MONTH')) return Icons.calendar_today_rounded;
+    if (l.contains('TRUCK') || l.contains('LORRY')) return Icons.local_shipping_rounded;
+    if (l.contains('SELLER') || l.contains('SUPPLIER')) return Icons.agriculture_rounded;
+    if (l.contains('BUYER') || l.contains('PARTY')) return Icons.handshake_rounded;
+    if (l.contains('TRANSPORTER') || l.contains('FREIGHT')) return Icons.route_rounded;
+    if (l.contains('QTY') || l.contains('QUANTITY') || l.contains('NUT')) return Icons.scatter_plot_rounded;
+    if (l.contains('WEIGHT') || l.contains('KG')) return Icons.scale_rounded;
+    if (l.contains('BAG') || l.contains('GUNN')) return Icons.shopping_bag_rounded;
+    if (l.contains('DIVISOR')) return Icons.percent_rounded;
+    if (l.contains('SEARCH') || l.contains('FILTER')) return Icons.search_rounded;
+    if (l.contains('PHONE') || l.contains('MOBILE')) return Icons.phone_iphone_rounded;
+    if (l.contains('BANK') || l.contains('ACCOUNT') || l.contains('IFSC')) return Icons.account_balance_rounded;
+    if (l.contains('ALLOCAT') || l.contains('LINK')) return Icons.link_rounded;
+    if (l.contains('DISC') || l.contains('SETTLE')) return Icons.content_cut_rounded;
+    if (l.contains('COMM')) return Icons.local_offer_rounded;
+    if (l.contains('LUMP') || l.contains('REMIT')) return Icons.inventory_2_rounded;
+    if (l.contains('BILL') || l.contains('RATE') || l.contains('AMOUNT') || l.contains('ADVANCE') || l.contains('EXP') || l.contains('₹')) {
+      return Icons.currency_rupee_rounded;
+    }
+    return Icons.edit_note_rounded;
+  }
+
+  String? _resolveSmartUnit(String lbl) {
+    if (widget.customUnit != null) return widget.customUnit;
+    final l = lbl.toUpperCase();
+    if (l.contains('QTY') || l.contains('QUANTITY') || l.contains('NUTS')) return 'NUTS';
+    if (l.contains('WEIGHT') || l.contains('KG')) return 'KGS';
+    if (l.contains('TOTAL BAGS')) return 'BAGS';
+    if (l.contains('BILL AMOUNT') || l.contains('AMOUNT PAID')) return 'INR';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final iconData = _resolveSmartIcon(widget.label);
+    final unitBadge = _resolveSmartUnit(widget.label);
+    
+    return RepaintBoundary( // <-- ADD THIS: Isolates focus glow to GPU layer
+      child: MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: Focus(
+        onFocusChange: (focused) {
+          if (mounted) setState(() => _isFocused = focused);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, _isFocused ? -2.0 : 0.0, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: _isFocused
+                ? Colors.white
+                : (_isHovered ? const Color(0xFFE8ECE9) : const Color(0xFFF3F6F4)),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _isFocused ? const Color(0xFF10B981) : Colors.transparent,
+              width: 1.5,
+            ),
+            boxShadow: _isFocused
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF10B981).withOpacity(0.18),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _isFocused
+                      ? const Color(0xFF059669)
+                      : const Color(0xFF10B981).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  iconData,
+                  size: 16,
+                  color: _isFocused ? Colors.white : const Color(0xFF059669),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.label.trim().isNotEmpty)
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 180),
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                          color: _isFocused
+                              ? const Color(0xFF059669)
+                              : const Color(0xFF64748B),
+                        ),
+                        child: Text(
+                          widget.label.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    const SizedBox(height: 1),
+                    widget.child,
+                  ],
+                ),
+              ),
+              if (unitBadge != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+                  decoration: BoxDecoration(
+                    color: _isFocused
+                        ? const Color(0xFFECFDF5)
+                        : const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    unitBadge,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                      color: _isFocused
+                          ? const Color(0xFF047857)
+                          : const Color(0xFF475569),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ));
+  }
+}
+
+class SoftChipSelector extends StatelessWidget {
+  final String label;
+  final List<String> options;
+  final String selectedValue;
+  final ValueChanged<String> onSelected;
+  final VoidCallback? onAddNew;
+
+  const SoftChipSelector({
+    super.key,
+    required this.label,
+    required this.options,
+    required this.selectedValue,
+    required this.onSelected,
+    this.onAddNew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              label.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              ...options.map((opt) {
+                final bool isSelected = opt.toUpperCase() == selectedValue.toUpperCase();
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onSelected(opt),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFFECFDF5)
+                            : const Color(0xFFF3F6F4),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF10B981)
+                              : Colors.transparent,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Text(
+                        opt,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: isSelected
+                              ? const Color(0xFF064E3B)
+                              : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              if (onAddNew != null)
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: onAddNew,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                    ),
+                    child: const Text(
+                      '+ Add New',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF059669),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+// ============================================================================
+// UPPERCASE FORMATTER & TACTILE AUTOCOMPLETE ENGINE
+// ============================================================================
+
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
@@ -15245,6 +15320,7 @@ class UpperCaseTextFormatter extends TextInputFormatter {
     );
   }
 }
+
 class _CustomAutocompleteField extends StatefulWidget {
   final String label;
   final List<String> optionsList;
@@ -15252,7 +15328,7 @@ class _CustomAutocompleteField extends StatefulWidget {
   final String hint;
   final Function(String) onSelect;
   final VoidCallback? onAddPressed;
-  final void Function(String)? onAddNewNamed; // <-- Defined here
+  final void Function(String)? onAddNewNamed;
   final FocusNode? focusNode;
   final FocusNode? nextFocusNode;
 
@@ -15264,7 +15340,7 @@ class _CustomAutocompleteField extends StatefulWidget {
     required this.hint,
     required this.onSelect,
     this.onAddPressed,
-    this.onAddNewNamed, // <-- Added to constructor
+    this.onAddNewNamed,
     this.focusNode,
     this.nextFocusNode,
   });
@@ -15310,13 +15386,14 @@ class _CustomAutocompleteFieldState extends State<_CustomAutocompleteField> {
     }
   }
 
- @override
-void dispose() {
-  _activeFocus.removeListener(_onFocusChanged);
-  _internalFocusNode?.dispose();
-  _controller.dispose();
-  super.dispose();
-}
+  @override
+  void dispose() {
+    _hideOverlay();
+    _activeFocus.removeListener(_onFocusChanged);
+    _internalFocusNode?.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
 
   void _selectOption(String opt) {
     _controller.text = opt;
@@ -15356,7 +15433,6 @@ void dispose() {
     }
   }
 
-  // ---------------- OVERLAY LOGIC ----------------
   void _showOverlay() {
     if (_overlayEntry != null) return;
 
@@ -15379,17 +15455,17 @@ void dispose() {
           child: CompositedTransformFollower(
             link: _layerLink,
             showWhenUnlinked: false,
-            offset: const Offset(0.0, 44.0),
+            offset: const Offset(0.0, 54.0),
             child: TapRegion(
               groupId: _tapGroupId,
               child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(10),
+                elevation: 10,
+                borderRadius: BorderRadius.circular(14),
                 color: Colors.white,
                 shadowColor: const Color(0x33000000),
                 child: Container(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: const Color(0xFFCBD5E1)),
                   ),
                   constraints: const BoxConstraints(maxHeight: 220),
@@ -15454,7 +15530,7 @@ void dispose() {
               const Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(
-                  'No matches found. Click + Add New above.',
+                  'No matches found. Click + New to add.',
                   style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFF94A3B8)),
                 ),
               )
@@ -15491,103 +15567,87 @@ void dispose() {
           _activeFocus.unfocus();
         }
       },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: CompositedTransformTarget(
+        link: _layerLink,
+        child: SoftCapsuleBox(
+          label: widget.label,
+          child: Row(
             children: [
-              Text(widget.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _activeFocus,
+                  inputFormatters: [UpperCaseTextFormatter()],
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: widget.hint,
+                    hintStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 3),
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (val) {
+                    widget.onSelect(val.toUpperCase());
+                    if (_overlayEntry == null && _activeFocus.hasFocus) {
+                      _showOverlay();
+                    }
+                  },
+                  onSubmitted: (val) => _onSubmittedAction(val),
+                ),
+              ),
               if (widget.onAddPressed != null)
                 InkWell(
+                  borderRadius: BorderRadius.circular(6),
                   onTap: widget.onAddPressed,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Text('+ Add New', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          CompositedTransformTarget(
-            link: _layerLink,
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _activeFocus,
-                      inputFormatters: [UpperCaseTextFormatter()],
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: widget.hint,
-                        hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        border: InputBorder.none,
-                      ),
-                      onChanged: (val) {
-                        widget.onSelect(val.toUpperCase());
-                        if (_overlayEntry == null && _activeFocus.hasFocus) {
-                          _showOverlay();
-                        }
-                      },
-                      onSubmitted: (val) => _onSubmittedAction(val),
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      '+ New',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
                     ),
                   ),
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _controller,
-                    builder: (context, value, child) {
-                      if (value.text.isNotEmpty) {
-                        return IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Padding(
-                            padding: EdgeInsets.only(right: 8.0),
-                            child: Icon(Icons.clear, size: 15, color: Color(0xFF94A3B8)),
-                          ),
-                          onPressed: () {
-                            _controller.clear();
-                            widget.onSelect('');
-                            _activeFocus.requestFocus();
-                          },
-                        );
+                ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _controller,
+                builder: (context, value, child) {
+                  if (value.text.isNotEmpty) {
+                    return InkWell(
+                      onTap: () {
+                        _controller.clear();
+                        widget.onSelect('');
+                        _activeFocus.requestFocus();
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(2.0),
+                        child: Icon(Icons.close_rounded, size: 16, color: Color(0xFF94A3B8)),
+                      ),
+                    );
+                  }
+                  return InkWell(
+                    onTap: () {
+                      if (_activeFocus.hasFocus) {
+                        if (_overlayEntry == null) {
+                          _showOverlay();
+                        } else {
+                          _hideOverlay();
+                          _activeFocus.unfocus();
+                        }
+                      } else {
+                        _activeFocus.requestFocus();
                       }
-                      return IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: const Padding(
-                          padding: EdgeInsets.only(right: 8.0),
-                          child: Icon(Icons.arrow_drop_down, size: 20, color: Color(0xFF64748B)),
-                        ),
-                        onPressed: () {
-                          if (_activeFocus.hasFocus) {
-                            if (_overlayEntry == null) {
-                              _showOverlay();
-                            } else {
-                              _hideOverlay();
-                              _activeFocus.unfocus();
-                            }
-                          } else {
-                            _activeFocus.requestFocus();
-                          }
-                        },
-                      );
                     },
-                  ),
-                ],
+                    child: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Color(0xFF64748B)),
+                  );
+                },
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
