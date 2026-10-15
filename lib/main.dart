@@ -2970,6 +2970,7 @@ Future<void> _recordSyncTimestamp() async {
 }
 // ---------------- AUTOMATIC CLOUD SMS QUEUE HELPER ----------------
   void _queueNotificationSms({required String phone, required String message}) {
+    return; // Paused for current phase
     final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '').trim();
     final targetPhone = cleanPhone.length >= 10 
         ? cleanPhone.substring(cleanPhone.length - 10) 
@@ -13894,7 +13895,6 @@ void _showStorageSettingsDialog() {
     ValueChanged<String>? onSubmitted,
     VoidCallback? onSubmittedAction,
   }) {
-    // Fast-path for purely display-only calculated fields (avoids TextField overhead)
     if (readOnly && onTap == null) {
       return SoftCapsuleBox(
         label: label,
@@ -13915,7 +13915,29 @@ void _showStorageSettingsDialog() {
       );
     }
 
-    final bool autoDate = isDate || label.toUpperCase().contains('DATE');
+    final String upperLbl = label.toUpperCase();
+    // Prevent "UPDATE EMAIL" / "UPDATE PIN" from matching "DATE"
+    final bool autoDate = isDate || (upperLbl.contains('DATE') && !upperLbl.contains('UPDATE'));
+    final bool isPinField = upperLbl.contains('PIN');
+    final bool isEmailOrPass = upperLbl.contains('EMAIL') ||
+        upperLbl.contains('MAIL') ||
+        upperLbl.contains('PASSWORD') ||
+        isPinField;
+
+    List<TextInputFormatter>? activeFormatters;
+    if (!readOnly) {
+      if (autoDate) {
+        activeFormatters = [SmoothDateFormatter()];
+      } else if (isPinField) {
+        activeFormatters = [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(4),
+        ];
+      } else if (!isNum && !isEmailOrPass) {
+        activeFormatters = [UpperCaseTextFormatter()];
+      }
+    }
+
     return SoftCapsuleBox(
       label: label,
       customIcon: icon,
@@ -13925,12 +13947,10 @@ void _showStorageSettingsDialog() {
         readOnly: readOnly,
         maxLines: maxLines,
         onTap: onTap,
-        keyboardType: isNum
+        keyboardType: (isNum || isPinField)
             ? const TextInputType.numberWithOptions(decimal: true)
-            : TextInputType.text,
-        inputFormatters: autoDate && !readOnly
-            ? [SmoothDateFormatter()]
-            : (!isNum ? [UpperCaseTextFormatter()] : null),
+            : (upperLbl.contains('EMAIL') ? TextInputType.emailAddress : TextInputType.text),
+        inputFormatters: activeFormatters,
         style: const TextStyle(
           fontSize: 13.5,
           fontWeight: FontWeight.w700,
@@ -15283,7 +15303,9 @@ class _SoftCapsuleBoxState extends State<SoftCapsuleBox> {
   IconData _resolveSmartIcon(String lbl) {
     if (widget.customIcon != null) return widget.customIcon!;
     final l = lbl.toUpperCase();
-    if (l.contains('DATE') || l.contains('MONTH')) return Icons.calendar_today_rounded;
+    if (l.contains('EMAIL') || l.contains('MAIL')) return Icons.alternate_email_rounded;
+    if (l.contains('PASSWORD') || l.contains('PIN') || l.contains('LOCK')) return Icons.lock_outline_rounded;
+    if ((l.contains('DATE') && !l.contains('UPDATE')) || l.contains('MONTH')) return Icons.calendar_today_rounded;
     if (l.contains('TRUCK') || l.contains('LORRY')) return Icons.local_shipping_rounded;
     if (l.contains('SELLER') || l.contains('SUPPLIER')) return Icons.agriculture_rounded;
     if (l.contains('BUYER') || l.contains('PARTY')) return Icons.handshake_rounded;
