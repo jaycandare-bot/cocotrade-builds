@@ -190,6 +190,7 @@ class TruckEntry {
       remarks,
       invoiceNo;
   String sourceSeller;
+  String splitOwner; // 'DEEPAK' or 'JAY'
   double qty,
       supplierBill,
       buyerBill,
@@ -205,7 +206,7 @@ class TruckEntry {
       amc,
       loadManualAmt;
   bool isInvoice, isLoadManual;
-  bool isDeleted; // <-- TOMBSTONE FLAG
+  bool isDeleted;
   String updatedAt;
 
   DateTime? _cachedDt;
@@ -229,6 +230,7 @@ class TruckEntry {
     required this.freight,
     required this.advance,
     this.sourceSeller = '',
+    this.splitOwner = 'DEEPAK',
     this.isInvoice = false,
     this.invoiceNo = '',
     this.rate = 0,
@@ -240,7 +242,7 @@ class TruckEntry {
     this.isLoadManual = false,
     this.loadManualAmt = 0,
     this.remarks = '',
-    this.isDeleted = false, // Default false
+    this.isDeleted = false,
     String? updatedAt,
   }) : updatedAt = updatedAt ?? DateTime.now().toUtc().toIso8601String();
 
@@ -263,6 +265,7 @@ class TruckEntry {
         'freight': freight,
         'advance': advance,
         'sourceSeller': sourceSeller,
+        'splitOwner': splitOwner,
         'isInvoice': isInvoice,
         'invoiceNo': invoiceNo,
         'rate': rate,
@@ -295,6 +298,13 @@ class TruckEntry {
         freight: (json['freight'] as num?)?.toDouble() ?? 0,
         advance: (json['advance'] as num?)?.toDouble() ?? 0,
         sourceSeller: json['sourceSeller'] ?? '',
+        splitOwner: (json['splitOwner'] ?? 'DEEPAK')
+                .toString()
+                .trim()
+                .toUpperCase()
+                .isEmpty
+            ? 'DEEPAK'
+            : (json['splitOwner'] ?? 'DEEPAK').toString().trim().toUpperCase(),
         isInvoice: json['isInvoice'] ?? false,
         invoiceNo: json['invoiceNo'] ?? '',
         rate: (json['rate'] as num?)?.toDouble() ?? 0,
@@ -2220,26 +2230,27 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final bClean = buyerName.trim().toUpperCase();
     final sClean = sellerFilter.trim().toUpperCase();
     final filteredTrucks = _trucks.where((t) {
-      // Allows viewing ghost/incomplete entries directly in statements to fix or delete them
       final bool isRealTruck = t.type != "OPENING BALANCE" &&
           !t.id.toString().startsWith("OB-") &&
           t.truck != "OPENING BAL" &&
           !(t.supplier.isEmpty && t.buyer.isEmpty);
-
+      final String tSplit = t.splitOwner.toString().trim().isEmpty
+          ? 'DEEPAK'
+          : t.splitOwner.toString().trim().toUpperCase();
+      final bool matchesSplit =
+          _repSplitFilter == 'ALL' || tSplit == _repSplitFilter;
       final matchesState = t.state == stateName;
       final matchesBuyer = !hasSpecificBuyer || t.buyer.toUpperCase() == bClean;
       final matchesSeller =
           sClean.isEmpty || t.supplier.toUpperCase() == sClean;
-
-      // Allow empty/missing dates to bypass FY/Range filters so they show up at the top
       final bool hasValidDate =
           t.date.trim().isNotEmpty && t.date.trim() != 'DD-MM-YY';
       final matchesFY =
           !hasValidDate || _isDateInFY(t.date, _selectedFinancialYear);
       final matchesRange =
           !hasValidDate || isDateInRange(t.date, fromDate, toDate);
-
       return isRealTruck &&
+          matchesSplit &&
           matchesState &&
           matchesBuyer &&
           matchesSeller &&
@@ -3490,6 +3501,133 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  String _tSplitOwner = "DEEPAK";
+  String _repSplitFilter = "ALL"; // 'ALL', 'DEEPAK', 'JAY'
+  String _dashOverdueSplitFilter = "ALL"; // 'ALL', 'DEEPAK', 'JAY'
+
+  Widget _buildOverdueSplitFilterSelector() {
+    const options = ['ALL', 'DEEPAK', 'JAY'];
+    return Container(
+      height: 30,
+      padding: const EdgeInsets.all(2.5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: options.map((opt) {
+          final bool active = _dashOverdueSplitFilter == opt;
+          return GestureDetector(
+            onTap: () => setState(() => _dashOverdueSplitFilter = opt),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFFDC2626) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                opt,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: active ? Colors.white : const Color(0xFF991B1B),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSplitFilterSelector() {
+    const options = ['ALL', 'DEEPAK', 'JAY'];
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: options.map((opt) {
+          final bool active = _repSplitFilter == opt;
+          return GestureDetector(
+            onTap: () => setState(() => _repSplitFilter = opt),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 9 : 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFF047857) : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(
+                opt,
+                style: TextStyle(
+                  fontSize: isMobile ? 10 : 10.5,
+                  fontWeight: FontWeight.w900,
+                  color: active ? Colors.white : const Color(0xFF64748B),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildQuickSplitToggle(dynamic t) {
+    final String cur =
+        (t.splitOwner ?? 'DEEPAK').toString().trim().toUpperCase();
+    final bool isJay = cur == 'JAY';
+    return Tooltip(
+      message: 'Account: ${isJay ? "JAY" : "DEEPAK"} (Tap to switch)',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(5),
+        onTap: () {
+          final String nextVal = isJay ? 'DEEPAK' : 'JAY';
+          setState(() {
+            _saveStateToHistory();
+            t.splitOwner = nextVal;
+            t.updatedAt = DateTime.now().toUtc().toIso8601String();
+          });
+          if (Firebase.apps.isNotEmpty) {
+            FirebaseFirestore.instance
+                .collection('trucks')
+                .doc(t.id)
+                .set(t.toJson(), SetOptions(merge: true));
+          }
+          _commitToLocalDrive();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: isJay ? const Color(0xFFEDE9FE) : const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(
+              color: isJay ? const Color(0xFFC4B5FD) : const Color(0xFFA7F3D0),
+            ),
+          ),
+          child: Text(
+            isJay ? 'J' : 'D',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: isJay ? const Color(0xFF6D28D9) : const Color(0xFF047857),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -6853,17 +6991,26 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   Widget _buildOverdueAlertCard() {
     if (_overdueBills.isEmpty) return const SizedBox.shrink();
 
+    final filteredOverdue = _overdueBills.where((item) {
+      final t = item['truck'];
+      final String tSplit = (t.splitOwner ?? 'DEEPAK').toString().trim().isEmpty
+          ? 'DEEPAK'
+          : (t.splitOwner ?? 'DEEPAK').toString().trim().toUpperCase();
+      return _dashOverdueSplitFilter == 'ALL' ||
+          tSplit == _dashOverdueSplitFilter;
+    }).toList();
+
     final ScrollController verticalScroll = ScrollController();
     final ScrollController horizontalScroll = ScrollController();
 
     const Map<int, TableColumnWidth> colWidths = {
       0: FlexColumnWidth(1.15), // DATE
-      1: FlexColumnWidth(2.5), // SELLER
-      2: FlexColumnWidth(2.3), // BUYER
+      1: FlexColumnWidth(2.4), // SELLER
+      2: FlexColumnWidth(2.2), // BUYER
       3: FlexColumnWidth(1.2), // BILL
-      4: FlexColumnWidth(1.3), // BUYER BAL
-      5: FlexColumnWidth(1.3), // SELLER BAL
-      6: FlexColumnWidth(0.95), // ACTION
+      4: FlexColumnWidth(1.25), // BUYER BAL
+      5: FlexColumnWidth(1.25), // SELLER BAL
+      6: FlexColumnWidth(1.25), // ACTION (Fits D/J toggle + Pay button cleanly)
     };
 
     Widget cellHeader(String title, {TextAlign align = TextAlign.left}) =>
@@ -6899,9 +7046,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           ),
         );
 
-    // Height calculation: ~38px per row * 7 visible rows = 266px fixed body height
-    final double bodyHeight =
-        _overdueBills.length > 7 ? 266.0 : (_overdueBills.length * 38.0);
+    final double bodyHeight = filteredOverdue.length > 7
+        ? 266.0
+        : (filteredOverdue.isEmpty ? 64.0 : filteredOverdue.length * 38.0);
 
     return Container(
       decoration: BoxDecoration(
@@ -6916,7 +7063,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Premium Header Banner
+          // 1. Header Banner with ALL | DEEPAK | JAY Split Filter
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: const BoxDecoration(
@@ -6929,10 +7076,14 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               border: Border(
                   bottom: BorderSide(color: Color(0xFFFEE2E2), width: 1.2)),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 10,
               children: [
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
                       padding: const EdgeInsets.all(7),
@@ -6966,27 +7117,35 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                     ),
                   ],
                 ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDC2626),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [
-                      BoxShadow(
-                          color: Color(0x33DC2626),
-                          blurRadius: 6,
-                          offset: Offset(0, 2))
-                    ],
-                  ),
-                  child: Text(
-                    '${_overdueBills.length} PENDING',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 10.5,
-                        color: Colors.white,
-                        letterSpacing: 0.5),
-                  ),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    _buildOverdueSplitFilterSelector(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                              color: Color(0x33DC2626),
+                              blurRadius: 6,
+                              offset: Offset(0, 2))
+                        ],
+                      ),
+                      child: Text(
+                        '${filteredOverdue.length} PENDING',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10.5,
+                            color: Colors.white,
+                            letterSpacing: 0.5),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -7009,7 +7168,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Pinned Header
                         Table(
                           columnWidths: colWidths,
                           defaultVerticalAlignment:
@@ -7031,153 +7189,193 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                           ],
                         ),
                         const Divider(height: 1, color: Color(0xFFFEE2E2)),
-
-                        // Scrollable Body locked to 7 Rows
                         SizedBox(
                           height: bodyHeight,
-                          child: Scrollbar(
-                            controller: verticalScroll,
-                            thumbVisibility: true,
-                            trackVisibility: true,
-                            child: SingleChildScrollView(
-                              controller: verticalScroll,
-                              scrollDirection: Axis.vertical,
-                              child: Table(
-                                columnWidths: colWidths,
-                                defaultVerticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                border: const TableBorder(
-                                  horizontalInside: BorderSide(
-                                      color: Color(0xFFF8FAFC), width: 1),
-                                ),
-                                children:
-                                    _overdueBills.asMap().entries.map((entry) {
-                                  final idx = entry.key;
-                                  final item = entry.value;
-                                  final t = item['truck'];
-                                  final double billAmount =
-                                      (item['buyerBill'] as num?)?.toDouble() ??
-                                          0.0;
-                                  final double bBal =
-                                      (item['buyerBal'] as num?)?.toDouble() ??
-                                          0.0;
-                                  final double sBal =
-                                      (item['sellerBal'] as num?)?.toDouble() ??
-                                          0.0;
-                                  final bool isEven = idx % 2 == 0;
+                          child: filteredOverdue.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    'No overdue invoices for $_dashOverdueSplitFilter.',
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        fontStyle: FontStyle.italic,
+                                        color: Color(0xFF94A3B8)),
+                                  ),
+                                )
+                              : Scrollbar(
+                                  controller: verticalScroll,
+                                  thumbVisibility: true,
+                                  trackVisibility: true,
+                                  child: SingleChildScrollView(
+                                    controller: verticalScroll,
+                                    scrollDirection: Axis.vertical,
+                                    child: Table(
+                                      columnWidths: colWidths,
+                                      defaultVerticalAlignment:
+                                          TableCellVerticalAlignment.middle,
+                                      border: const TableBorder(
+                                        horizontalInside: BorderSide(
+                                            color: Color(0xFFF8FAFC), width: 1),
+                                      ),
+                                      children: filteredOverdue
+                                          .asMap()
+                                          .entries
+                                          .map((entry) {
+                                        final idx = entry.key;
+                                        final item = entry.value;
+                                        final t = item['truck'];
+                                        final double billAmount =
+                                            (item['buyerBill'] as num?)
+                                                    ?.toDouble() ??
+                                                0.0;
+                                        final double bBal =
+                                            (item['buyerBal'] as num?)
+                                                    ?.toDouble() ??
+                                                0.0;
+                                        final double sBal =
+                                            (item['sellerBal'] as num?)
+                                                    ?.toDouble() ??
+                                                0.0;
+                                        final bool isEven = idx % 2 == 0;
 
-                                  return TableRow(
-                                    decoration: BoxDecoration(
-                                      color: isEven
-                                          ? Colors.white
-                                          : const Color(0xFFFAFAFA),
-                                    ),
-                                    children: [
-                                      cellText(formatDisplayDate(t.date)),
-                                      cellText(
-                                          t.supplier.isNotEmpty
-                                              ? t.supplier
-                                              : '—',
-                                          isBold: true),
-                                      cellText(t.buyer.isNotEmpty
-                                          ? t.buyer
-                                          : 'Unknown'),
-                                      cellText(money(billAmount),
-                                          isBold: true,
-                                          color: const Color(0xFF0F172A)),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 14, vertical: 7),
-                                        child: bBal > 0
-                                            ? Text(money(bBal),
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: Color(0xFFDC2626),
-                                                    fontSize: 12))
-                                            : Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2),
-                                                decoration: BoxDecoration(
-                                                    color:
-                                                        const Color(0xFFECFDF5),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            4)),
-                                                child: const Text('CLEAR',
-                                                    style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 9.5,
-                                                        color:
-                                                            Color(0xFF047857))),
-                                              ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 14, vertical: 7),
-                                        child: sBal > 0
-                                            ? Text(money(sBal),
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    color: Color(0xFFDC2626),
-                                                    fontSize: 12))
-                                            : Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2),
-                                                decoration: BoxDecoration(
-                                                    color:
-                                                        const Color(0xFFECFDF5),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            4)),
-                                                child: const Text('CLEAR',
-                                                    style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 9.5,
-                                                        color:
-                                                            Color(0xFF047857))),
-                                              ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
-                                        child: Center(
-                                          child: FilledButton(
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor:
-                                                  const Color(0xFF047857),
-                                              foregroundColor: Colors.white,
+                                        return TableRow(
+                                          decoration: BoxDecoration(
+                                            color: isEven
+                                                ? Colors.white
+                                                : const Color(0xFFFAFAFA),
+                                          ),
+                                          children: [
+                                            cellText(formatDisplayDate(t.date)),
+                                            cellText(
+                                                t.supplier.isNotEmpty
+                                                    ? t.supplier
+                                                    : '—',
+                                                isBold: true),
+                                            cellText(t.buyer.isNotEmpty
+                                                ? t.buyer
+                                                : 'Unknown'),
+                                            cellText(money(billAmount),
+                                                isBold: true,
+                                                color: const Color(0xFF0F172A)),
+                                            Padding(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                      horizontal: 10,
-                                                      vertical: 2),
-                                              minimumSize: const Size(44, 26),
-                                              elevation: 0,
-                                              shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(6)),
+                                                      horizontal: 14,
+                                                      vertical: 7),
+                                              child: bBal > 0
+                                                  ? Text(money(bBal),
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                          color:
+                                                              Color(0xFFDC2626),
+                                                          fontSize: 12))
+                                                  : Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                          color: const Color(
+                                                              0xFFECFDF5),
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(4)),
+                                                      child: const Text('CLEAR',
+                                                          style: TextStyle(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 9.5,
+                                                              color: Color(
+                                                                  0xFF047857))),
+                                                    ),
                                             ),
-                                            onPressed: () =>
-                                                _markBillAsPaid(item),
-                                            child: const Text('Pay',
-                                                style: TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight:
-                                                        FontWeight.bold)),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                          ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 14,
+                                                      vertical: 7),
+                                              child: sBal > 0
+                                                  ? Text(money(sBal),
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w900,
+                                                          color:
+                                                              Color(0xFFDC2626),
+                                                          fontSize: 12))
+                                                  : Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 6,
+                                                          vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                          color: const Color(
+                                                              0xFFECFDF5),
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(4)),
+                                                      child: const Text('CLEAR',
+                                                          style: TextStyle(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 9.5,
+                                                              color: Color(
+                                                                  0xFF047857))),
+                                                    ),
+                                            ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 4),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _buildQuickSplitToggle(t),
+                                                  const SizedBox(width: 6),
+                                                  FilledButton(
+                                                    style:
+                                                        FilledButton.styleFrom(
+                                                      backgroundColor:
+                                                          const Color(
+                                                              0xFF047857),
+                                                      foregroundColor:
+                                                          Colors.white,
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 2),
+                                                      minimumSize:
+                                                          const Size(44, 26),
+                                                      elevation: 0,
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          6)),
+                                                    ),
+                                                    onPressed: () =>
+                                                        _markBillAsPaid(item),
+                                                    child: const Text('Pay',
+                                                        style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .bold)),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ),
                         ),
                       ],
                     ),
@@ -7472,6 +7670,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       _tTransporter = "";
       _tCoconutType = "TENDER";
       _tSourceSeller = "";
+      _tSplitOwner = "DEEPAK";
     });
   }
 
@@ -7568,6 +7767,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         _tBuyer = t.buyer;
         _tTransporter = t.transporter == '—' ? '' : t.transporter;
         _tCoconutType = t.type;
+        _tSplitOwner = (t.splitOwner.toString().trim().isNotEmpty)
+            ? t.splitOwner.toString().trim().toUpperCase()
+            : "DEEPAK";
         _tQtyCtrl.text = t.qty > 0 ? t.qty.toStringAsFixed(0) : '';
         _tSBillCtrl.text =
             t.supplierBill > 0 ? t.supplierBill.toStringAsFixed(0) : '';
@@ -8625,6 +8827,13 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           const SizedBox(height: 16),
 
           // SECTION A: ROUTE & PARTIES
+          SoftChipSelector(
+            label: 'Truck Split Account (Deepak / Jay)',
+            options: const ['DEEPAK', 'JAY'],
+            selectedValue: _tSplitOwner,
+            onSelected: (val) => setState(() => _tSplitOwner = val),
+          ),
+          const SizedBox(height: 16),
           sectionTitle('1. Route & Parties', Icons.map_outlined),
           _responsiveRow([
             Expanded(
@@ -8918,6 +9127,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                         truck: _tTruckCtrl.text.trim().toUpperCase(),
                         supplier: sName,
                         sourceSeller: srcSeller,
+                        splitOwner: _tSplitOwner,
                         buyer: bName,
                         transporter: tName,
                         type: _tCoconutType,
@@ -8967,6 +9177,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                       truck: _tTruckCtrl.text.trim().toUpperCase(),
                       supplier: sName,
                       sourceSeller: srcSeller,
+                      splitOwner: _tSplitOwner,
                       buyer: bName,
                       transporter: tName,
                       type: _tCoconutType,
@@ -12349,15 +12560,24 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           t.truck != "OPENING BAL" &&
           !(t.supplier == "—" && t.buyer == "—") &&
           !t.remarks.toUpperCase().contains("OPENING BAL");
+      final String tSplit = t.splitOwner.toString().trim().isEmpty
+          ? 'DEEPAK'
+          : t.splitOwner.toString().trim().toUpperCase();
+      final bool matchesSplit =
+          _repSplitFilter == 'ALL' || tSplit == _repSplitFilter;
       final matchesState = t.state == _selectedState;
       final matchesBuyer =
           !hasSpecificBuyer || t.buyer.toUpperCase() == _repBuyer.toUpperCase();
       final matchesSeller = _repBuyerSellerFilter.isEmpty ||
           t.supplier.toUpperCase() == _repBuyerSellerFilter.toUpperCase();
-      final matchesFY = _isDateInFY(t.date, _selectedFinancialYear);
-      final matchesRange =
+      final bool hasValidDate =
+          t.date.trim().isNotEmpty && t.date.trim() != 'DD-MM-YY';
+      final matchesFY =
+          !hasValidDate || _isDateInFY(t.date, _selectedFinancialYear);
+      final matchesRange = !hasValidDate ||
           isDateInRange(t.date, _repBuyerFromCtrl.text, _repBuyerToCtrl.text);
       return isRealTruck &&
+          matchesSplit &&
           matchesState &&
           matchesBuyer &&
           matchesSeller &&
@@ -12592,14 +12812,22 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  _buildHideSwitch(),
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      _buildHideSwitch(),
+                      _buildSplitFilterSelector(),
+                    ],
+                  ),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       TextButton(
                         style: TextButton.styleFrom(
@@ -12610,6 +12838,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                         onPressed: () => setState(() {
                           _repBuyer = "";
                           _repBuyerSellerFilter = "";
+                          _repSplitFilter = "ALL";
                           _repBuyerFromCtrl.clear();
                           _repBuyerToCtrl.clear();
                         }),
@@ -12620,6 +12849,120 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                               fontWeight: FontWeight.bold,
                               fontSize: 12),
                         ),
+                      ),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF047857)),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: isMobile ? 10 : 14, vertical: 8),
+                          minimumSize: const Size(0, 36),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.library_books_rounded,
+                            size: 15, color: Color(0xFF047857)),
+                        label: Text(
+                          'Consolidated (AP + TN)',
+                          style: TextStyle(
+                              fontSize: isMobile ? 11.5 : 12.5,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF047857)),
+                        ),
+                        onPressed: () {
+                          final String targetBuyer =
+                              _repBuyer.isEmpty ? "ALL BUYERS" : _repBuyer;
+                          showDialog(
+                            context: context,
+                            builder: (c2) => Dialog(
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                              insetPadding: EdgeInsets.all(isMobile ? 12 : 24),
+                              child: Container(
+                                width: isMobile
+                                    ? MediaQuery.of(context).size.width
+                                    : 920,
+                                height: MediaQuery.of(context).size.height *
+                                    (isMobile ? 0.85 : 0.85),
+                                padding: EdgeInsets.all(isMobile ? 12 : 20),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            'Consolidated Statement — $targetBuyer (AP + TN)',
+                                            style: TextStyle(
+                                                fontSize: isMobile ? 13.5 : 16,
+                                                fontWeight: FontWeight.w900),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            if (!kIsWeb && Platform.isWindows)
+                                              FilledButton.icon(
+                                                style: FilledButton.styleFrom(
+                                                    backgroundColor:
+                                                        const Color(
+                                                            0xFF047857)),
+                                                icon: const Icon(
+                                                    Icons.save_alt_rounded,
+                                                    size: 15),
+                                                label: const Text(
+                                                    'Save to Folder',
+                                                    style: TextStyle(
+                                                        fontSize: 11.5)),
+                                                onPressed: () async {
+                                                  final pdfBytes =
+                                                      await _generateConsolidatedBuyerPdfReport(
+                                                    PdfPageFormat.a4,
+                                                    targetBuyer,
+                                                    _repBuyerSellerFilter,
+                                                  );
+                                                  if (!context.mounted) return;
+                                                  await _exportPdfToCustomDirOrShare(
+                                                    context: context,
+                                                    fileName:
+                                                        'CONSOLIDATED_STATEMENT_${targetBuyer.replaceAll(' ', '_')}.pdf',
+                                                    pdfBytes: pdfBytes,
+                                                  );
+                                                },
+                                              ),
+                                            const SizedBox(width: 8),
+                                            IconButton(
+                                                icon: const Icon(Icons.close),
+                                                onPressed: () =>
+                                                    Navigator.pop(c2)),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const Divider(),
+                                    Expanded(
+                                      child: PdfPreview(
+                                        build: (format) =>
+                                            _generateConsolidatedBuyerPdfReport(
+                                                format,
+                                                targetBuyer,
+                                                _repBuyerSellerFilter),
+                                        canChangeOrientation: false,
+                                        canChangePageFormat: false,
+                                        canDebug: false,
+                                        allowSharing: true,
+                                        allowPrinting: true,
+                                        initialPageFormat: PdfPageFormat.a4,
+                                        pdfFileName:
+                                            '${targetBuyer.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '').replaceAll(' ', '_').toUpperCase()}_CONSOLIDATED_STATEMENT.pdf',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
@@ -12937,7 +13280,8 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               child: SizedBox(
-                width: 1010, // Total width of all 7 columns
+                width:
+                    1030, // Total width of all 7 columns including D/J toggle
                 child: _buildBuyerTableContent(displayedBuyerRows, visibleQty,
                     visibleBills, visiblePaid, visibleBalance),
               ),
@@ -13018,7 +13362,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                           color: Color(0xFF64748B),
                           fontSize: 11))),
               SizedBox(
-                  width: 80,
+                  width: 96,
                   child: Text('ACTIONS',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
@@ -13095,10 +13439,12 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                     ),
                   ),
                   SizedBox(
-                    width: 80,
+                    width: 96,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        _buildQuickSplitToggle(t),
+                        const SizedBox(width: 4),
                         InkWell(
                           onTap: () => _editFromReport(t),
                           child: const Padding(
@@ -13211,7 +13557,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                         fontSize: 12,
                         color: Color(0xFF047857))),
               ),
-              const SizedBox(width: 80),
+              const SizedBox(width: 96),
             ],
           ),
         ),
@@ -13225,27 +13571,28 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final bool hasSpecificBuyer = _repSellerBuyerFilter.trim().isNotEmpty;
 
     final sellerAllStateTrucks = _trucks.where((t) {
-      // Allows viewing ghost/incomplete entries directly in statements to fix or delete them
       final bool isRealTruck = t.type != "OPENING BALANCE" &&
           !t.id.toString().startsWith("OB-") &&
           t.truck != "OPENING BAL" &&
           !(t.supplier.isEmpty && t.buyer.isEmpty);
-
+      final String tSplit = t.splitOwner.toString().trim().isEmpty
+          ? 'DEEPAK'
+          : t.splitOwner.toString().trim().toUpperCase();
+      final bool matchesSplit =
+          _repSplitFilter == 'ALL' || tSplit == _repSplitFilter;
       final matchesState = t.state == _selectedState;
       final matchesSeller = _repSeller.trim().isEmpty ||
           t.supplier.toUpperCase() == _repSeller.trim().toUpperCase();
       final matchesBuyer = _repSellerBuyerFilter.trim().isEmpty ||
           t.buyer.toUpperCase() == _repSellerBuyerFilter.trim().toUpperCase();
-
-      // Allow empty/missing dates to bypass FY/Range filters so they show up at the top
       final bool hasValidDate =
           t.date.trim().isNotEmpty && t.date.trim() != 'DD-MM-YY';
       final matchesFY =
           !hasValidDate || _isDateInFY(t.date, _selectedFinancialYear);
       final matchesRange = !hasValidDate ||
           isDateInRange(t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
-
       return isRealTruck &&
+          matchesSplit &&
           matchesState &&
           matchesSeller &&
           matchesBuyer &&
@@ -13470,10 +13817,18 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  _buildHideSwitch(),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      _buildHideSwitch(),
+                      _buildSplitFilterSelector(),
+                    ],
+                  ),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFF047857)),
@@ -13884,8 +14239,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               child: SizedBox(
-                width:
-                    1240, // Provides ample room for columns + container padding + action icons
+                width: 1260, // Provides ample room for all 5 action icons
                 child: _buildSellerTableContent(
                   displayedSellerRows,
                   visibleSellerQty,
@@ -13995,7 +14349,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                           color: Color(0xFF64748B),
                           fontSize: 11))),
               const SizedBox(
-                  width: 120,
+                  width: 136,
                   child: Text('ACTIONS',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
@@ -14089,10 +14443,12 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                     ),
                   ),
                   SizedBox(
-                    width: 120,
+                    width: 136,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        _buildQuickSplitToggle(t),
+                        const SizedBox(width: 3),
                         if (bal > 0.05) ...[
                           Tooltip(
                             message: 'Pay / Clear Bill (${money(bal)})',
@@ -14240,7 +14596,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                         fontSize: 12,
                         color: Color(0xFF047857))),
               ),
-              const SizedBox(width: 120),
+              const SizedBox(width: 136),
             ],
           ),
         ),
@@ -14381,12 +14737,22 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
 
     for (var seller in _sellerNames) {
       final sellerTrucks = _trucks.where((t) {
+        final String tSplit =
+            (t.splitOwner ?? 'DEEPAK').toString().trim().isEmpty
+                ? 'DEEPAK'
+                : (t.splitOwner ?? 'DEEPAK').toString().trim().toUpperCase();
+        final bool matchesSplit =
+            _repSplitFilter == 'ALL' || tSplit == _repSplitFilter;
+
         return t.state == _selectedState &&
             t.supplier.toUpperCase() == seller.toUpperCase() &&
+            matchesSplit &&
             _isDateInFY(t.date, _selectedFinancialYear) &&
             isDateInRange(
                 t.date, _repSellerFromCtrl.text, _repSellerToCtrl.text);
       }).toList();
+
+      if (sellerTrucks.isEmpty) continue;
 
       final double totalQty =
           sellerTrucks.fold<double>(0.0, (s, t) => s + t.qty);
@@ -14395,6 +14761,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       final double qtyComm = sCommRate > 0
           ? ((totalQty * sCommRate) / divisor).roundToDouble()
           : 0.0;
+
       final double adjComm = _payments
           .where((p) =>
               p.state == _selectedState &&
@@ -14403,6 +14770,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               isDateInRange(
                   p.date, _repSellerFromCtrl.text, _repSellerToCtrl.text))
           .fold<double>(0.0, (s, p) => s + p.commissionAdjusted);
+
       final double totalComm = directComm + qtyComm;
 
       final commPayments = _payments.where((p) {
@@ -14455,7 +14823,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Container(
-          width: 960,
+          width: 980,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
               color: Colors.white, borderRadius: BorderRadius.circular(16)),
@@ -14466,11 +14834,32 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Consolidated Commission Summary',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 16,
-                          color: Color(0xFF0F172A))),
+                  Row(
+                    children: [
+                      const Text('Consolidated Commission Summary',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                              color: Color(0xFF0F172A))),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Text(
+                          'Split: $_repSplitFilter',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF047857)),
+                        ),
+                      ),
+                    ],
+                  ),
                   Row(
                     children: [
                       OutlinedButton.icon(
@@ -14510,7 +14899,8 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: SizedBox(
-                      width: 900,
+                      width:
+                          930, // Perfectly fits all columns without right-side overflow stripes
                       child: Column(
                         children: [
                           Container(
@@ -14572,7 +14962,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                                             fontSize: 11,
                                             color: Color(0xFF64748B)))),
                                 SizedBox(
-                                    width: 100,
+                                    width: 110,
                                     child: Text('BALANCE',
                                         textAlign: TextAlign.right,
                                         style: TextStyle(
@@ -14637,7 +15027,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                                           child: _buildCommissionReceivedCell(
                                               item['name'], pList, rec))),
                                   SizedBox(
-                                      width: 100,
+                                      width: 110,
                                       child: Text(money(bal),
                                           textAlign: TextAlign.right,
                                           style: TextStyle(
@@ -14701,7 +15091,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                                             color: Color(0xFF047857),
                                             fontSize: 12))),
                                 SizedBox(
-                                    width: 100,
+                                    width: 110,
                                     child: Text(
                                         money(grandTotalCommission -
                                             grandTotalReceived),
@@ -17167,7 +17557,13 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final int totalFySellerTrucks = _trucks.where((t) {
       final sName = t.supplier.toString().trim().toUpperCase();
       final targetSeller = seller.toString().trim().toUpperCase();
+      final String tSplit = t.splitOwner.toString().trim().isEmpty
+          ? 'DEEPAK'
+          : t.splitOwner.toString().trim().toUpperCase();
+      final bool matchesSplit =
+          _repSplitFilter == 'ALL' || tSplit == _repSplitFilter;
       return sName == targetSeller &&
+          matchesSplit &&
           _isDateInFY(t.date, _selectedFinancialYear);
     }).length;
 
